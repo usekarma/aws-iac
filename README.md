@@ -1,4 +1,4 @@
-# AWS Infrastructure as Code (IaC) 🚀  
+# AWS Infrastructure as Code (IaC)
 
 ## **Overview**  
 This repository contains reusable **Terraform modules** for deploying AWS infrastructure **dynamically** based on configurations stored in AWS Parameter Store.  
@@ -92,6 +92,16 @@ This means **Terraform does not need to reference state files** for dependencies
 ✅ **Prevents unauthorized deployments** – Terraform will only deploy what’s explicitly defined in the config repo.  
 ✅ **Ensures full auditability** – Since all changes must go through Git, every deployment is tracked.  
 ✅ **Uses AWS Secrets Manager for sensitive credentials** – Preventing secrets from being exposed in Terraform state.  
+
+---
+
+## 🧠 Project Background
+
+This repository is part of a broader open-source architecture I’ve developed to support configuration-driven AWS deployment.
+
+While some of these ideas were shaped through years of professional experience and refinement, the implementations here are entirely original — built independently and outside the context of any prior employment.
+
+For the full context and design principles behind this system, see the [aws-deployment-guide](https://github.com/tstrall/aws-deployment-guide).
 
 ---
 
