@@ -27,6 +27,16 @@ aws-iac/
 
 ---
 
+## Developer Setup: AWS CLI + Prompt Customization
+
+This framework uses named AWS CLI profiles to authenticate into different AWS accounts.
+
+To configure AWS SSO and optionally customize your shell prompt for safety and visibility, see:
+
+📄 [`setup/bash-aws-profile-prompt.md`](https://github.com/tstrall/aws-deployment-guide/blob/main/setup/bash-aws-profile-prompt.md)
+
+---
+
 ## How It Works
 
 ### 1. Requires Predefined Configuration
@@ -132,4 +142,3 @@ To adopt this in your own environment:
 1. Fork this repo and define your own components.
 2. Use `aws-config` to manage deployment inputs.
 3. Integrate with CI/CD to automate validation and deployment workflows.
-
