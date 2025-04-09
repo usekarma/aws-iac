@@ -1,82 +1,90 @@
 provider "aws" {
-  region = var.aws_region
-}
-
-locals {
-  config_path  = "/iac/serverless-site/${var.nickname}/config"
-  runtime_path = "/iac/serverless-site/${var.nickname}/runtime"
-  config       = jsondecode(data.aws_ssm_parameter.config.value)
+  region = "us-east-1"
 }
 
 data "aws_ssm_parameter" "config" {
-  name = local.config_path
+  name = "/iac/serverless-site/strall-com/config"
+}
+
+locals {
+  config      = jsondecode(data.aws_ssm_parameter.config.value)
+  bucket_name = local.config.content_bucket_prefix
+  tags        = local.config.tags
 }
 
 resource "aws_s3_bucket" "site" {
-  bucket = "${var.nickname}-site"
-  force_destroy = true
+  bucket = local.bucket_name
+  tags   = local.tags
 }
 
-resource "aws_s3_bucket_website_configuration" "site" {
+resource "aws_s3_bucket_public_access_block" "block_public" {
   bucket = aws_s3_bucket.site.id
 
-  index_document {
-    suffix = "index.html"
-  }
-
-  error_document {
-    key = "error.html"
-  }
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
-resource "aws_s3_bucket_public_access_block" "allow_public" {
-  bucket = aws_s3_bucket.site.id
-
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
+resource "aws_cloudfront_origin_access_identity" "site" {
+  comment = "OAI for ${local.bucket_name}"
 }
 
-resource "aws_s3_bucket_policy" "allow_public_read" {
+resource "aws_s3_bucket_policy" "allow_cloudfront_read" {
   bucket = aws_s3_bucket.site.id
 
   policy = jsonencode({
-    Version = "2012-10-17"
+    Version = "2012-10-17",
     Statement = [
       {
-        Sid       = "PublicReadGetObject"
-        Effect    = "Allow"
-        Principal = "*"
-        Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.site.arn}/*"
+        Effect = "Allow",
+        Principal = {
+          AWS = aws_cloudfront_origin_access_identity.site.iam_arn
+        },
+        Action   = "s3:GetObject",
+        Resource = "${aws_s3_bucket.site.arn}/*"
       }
     ]
   })
+}
 
-  depends_on = [aws_s3_bucket_public_access_block.allow_public]
+resource "aws_cloudfront_function" "rewrite_index_html" {
+  name    = "rewrite-index-html"
+  runtime = "cloudfront-js-1.0"
+  comment = "Rewrite /path/ to /path/index.html"
+
+  code = <<EOF
+function handler(event) {
+  var request = event.request;
+  var uri = request.uri;
+  if (uri.endsWith('/')) {
+    request.uri += 'index.html';
+  }
+  return request;
+}
+EOF
 }
 
 resource "aws_cloudfront_distribution" "site" {
-  origin {
-    domain_name = aws_s3_bucket_website_configuration.site.website_endpoint
-    origin_id   = "s3-${aws_s3_bucket.site.bucket}"
+  enabled             = true
+  is_ipv6_enabled     = true
+  default_root_object = "index.html"
+  comment             = local.config.cloudfront_comment
+  tags                = local.tags
 
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
+  origin {
+    domain_name = aws_s3_bucket.site.bucket_regional_domain_name
+    origin_id   = "s3-${local.bucket_name}"
+
+    s3_origin_config {
+      origin_access_identity = aws_cloudfront_origin_access_identity.site.cloudfront_access_identity_path
     }
   }
-
-  enabled             = true
-  default_root_object = "index.html"
 
   default_cache_behavior {
     allowed_methods  = ["GET", "HEAD"]
     cached_methods   = ["GET", "HEAD"]
-    target_origin_id = "s3-${aws_s3_bucket.site.bucket}"
+    target_origin_id = "s3-${local.bucket_name}"
 
     forwarded_values {
       query_string = false
@@ -86,25 +94,33 @@ resource "aws_cloudfront_distribution" "site" {
     }
 
     viewer_protocol_policy = "redirect-to-https"
-  }
-
-  viewer_certificate {
-    cloudfront_default_certificate = true
-  }
+  
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.rewrite_index_html.arn
+    }
+}
 
   restrictions {
     geo_restriction {
       restriction_type = "none"
     }
   }
+
+  viewer_certificate {
+    cloudfront_default_certificate = true
+    # acm_certificate_arn            = local.config.acm_certificate_arn
+    # ssl_support_method             = "sni-only"
+    # minimum_protocol_version       = "TLSv1.2_2021"
+  }
 }
 
 resource "aws_ssm_parameter" "runtime" {
-  name  = local.runtime_path
+  name  = "/iac/serverless-site/strall-com/runtime"
   type  = "String"
   value = jsonencode({
-    bucket_name = aws_s3_bucket.site.bucket,
-    website_url = aws_s3_bucket_website_configuration.site.website_endpoint,
-    cf_domain   = aws_cloudfront_distribution.site.domain_name
+    content_bucket_prefix          = local.bucket_name,
+    cloudfront_distribution_id     = aws_cloudfront_distribution.site.id,
+    cloudfront_distribution_domain = aws_cloudfront_distribution.site.domain_name
   })
 }
