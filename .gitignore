@@ -1,3 +1,8 @@
+# Skip local artifacts and script output
+.terragrunt-work/
+*.log
+scripts/*.log
+
 # Local .terraform/ state and provider files
 .terraform/
 .terraform.lock.hcl
