@@ -7,14 +7,22 @@ terraform {
   backend "s3" {}
 }
 
-
 provider "aws" {
   region = var.aws_region
 }
 
-# Fetch config from Parameter Store
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
 data "aws_ssm_parameter" "config" {
   name = "/iac/serverless-site/${var.nickname}/config"
+}
+
+data "aws_route53_zone" "zone" {
+  count = local.enable_custom_domain && local.zone_name != null ? 1 : 0
+  name  = local.zone_name
 }
 
 locals {
@@ -22,9 +30,21 @@ locals {
   enable_custom_domain = try(local.config.enable_custom_domain, false)
   bucket_name          = local.config.content_bucket_prefix
   tags                 = local.config.tags
+  domain_aliases       = try(local.config.domain_aliases, [])
+  site_name            = try(local.config.site_name, null)
+  zone_name            = try(local.config.route53_zone_name, null)
+
+  enable_custom_domain_desensitized = try(nonsensitive(local.enable_custom_domain), false)
+  site_name_desensitized            = try(nonsensitive(local.site_name), "")
+  domain_aliases_desensitized       = try(nonsensitive(local.domain_aliases), [])
+  zone_name_desensitized            = try(nonsensitive(local.zone_name), "")
+
+  a_alias_map = local.enable_custom_domain_desensitized && local.zone_name_desensitized != "" ? {
+    for domain in distinct(concat([local.site_name_desensitized], local.domain_aliases_desensitized)) :
+    domain => domain
+  } : {}
 }
 
-# S3 bucket for static content
 resource "aws_s3_bucket" "site" {
   bucket = local.bucket_name
   tags   = local.tags
@@ -39,12 +59,10 @@ resource "aws_s3_bucket_public_access_block" "block_public" {
   restrict_public_buckets = true
 }
 
-# Origin Access Identity
 resource "aws_cloudfront_origin_access_identity" "site" {
   comment = "OAI for ${local.bucket_name}"
 }
 
-# Bucket policy allowing CloudFront read access
 resource "aws_s3_bucket_policy" "allow_cloudfront_read" {
   bucket = aws_s3_bucket.site.id
 
@@ -52,18 +70,15 @@ resource "aws_s3_bucket_policy" "allow_cloudfront_read" {
     Version = "2012-10-17",
     Statement = [
       {
-        Effect = "Allow",
-        Principal = {
-          AWS = aws_cloudfront_origin_access_identity.site.iam_arn
-        },
-        Action   = "s3:GetObject",
-        Resource = "${aws_s3_bucket.site.arn}/*"
+        Effect    = "Allow",
+        Principal = { AWS = aws_cloudfront_origin_access_identity.site.iam_arn },
+        Action    = "s3:GetObject",
+        Resource  = "${aws_s3_bucket.site.arn}/*"
       }
     ]
   })
 }
 
-# CloudFront Function for / -> /index.html
 resource "aws_cloudfront_function" "rewrite_index_html" {
   name    = "rewrite-index-html-${var.nickname}"
   runtime = "cloudfront-js-1.0"
@@ -81,7 +96,19 @@ function handler(event) {
 EOF
 }
 
-# CloudFront Distribution
+module "acm_certificate" {
+  source = "git::https://github.com/tstrall/aws-modules.git//acm-certificate?ref=main"
+
+  providers = {
+    aws = aws.us_east_1
+  }
+
+  domain_name               = local.site_name
+  subject_alternative_names = local.domain_aliases
+  zone_id                   = data.aws_route53_zone.zone[0].zone_id
+  tags                      = local.tags
+}
+
 resource "aws_cloudfront_distribution" "site" {
   enabled             = true
   is_ipv6_enabled     = true
@@ -124,36 +151,30 @@ resource "aws_cloudfront_distribution" "site" {
     }
   }
 
-  aliases = local.enable_custom_domain ? tolist(concat([local.config.site_name], try(local.config.domain_aliases, []))) : []
+  aliases = local.enable_custom_domain ? tolist(concat([local.site_name], local.domain_aliases)) : []
 
   viewer_certificate {
     cloudfront_default_certificate = local.enable_custom_domain ? false : true
-    acm_certificate_arn            = local.enable_custom_domain ? local.config.acm_certificate_arn : null
+    acm_certificate_arn            = local.enable_custom_domain ? module.acm_certificate.certificate_arn : null
     ssl_support_method             = local.enable_custom_domain ? "sni-only" : null
     minimum_protocol_version       = local.enable_custom_domain ? "TLSv1.2_2021" : null
   }
 }
 
-# Optional Route 53 zone + record
-data "aws_route53_zone" "selected" {
-  count = local.enable_custom_domain ? 1 : 0
-  name  = local.config.route53_zone_name
-}
+resource "aws_route53_record" "a_aliases" {
+  for_each = local.a_alias_map
 
-resource "aws_route53_record" "alias" {
-  count   = local.enable_custom_domain ? 1 : 0
-  zone_id = data.aws_route53_zone.selected[0].zone_id
-  name    = local.config.site_name
+  zone_id = module.acm_certificate.zone_id
+  name    = each.key
   type    = "A"
 
   alias {
     name                   = aws_cloudfront_distribution.site.domain_name
-    zone_id                = "Z2FDTNDATAQYW2" # Global CloudFront zone
+    zone_id                = "Z2FDTNDATAQYW2"
     evaluate_target_health = false
   }
 }
 
-# Runtime output to SSM
 resource "aws_ssm_parameter" "runtime" {
   name  = "/iac/serverless-site/${var.nickname}/runtime"
   type  = "String"

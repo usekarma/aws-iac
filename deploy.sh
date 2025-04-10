@@ -47,8 +47,8 @@ fi
 
 if [[ -z "${COMPONENT:-}" || -z "${NICKNAME:-}" ]]; then
   echo "❌ Usage:"
-  echo "   AWS_PROFILE=dev ./deploy.sh serverless-site marketing-site [--auto-approve]"
-  echo "   AWS_PROFILE=prod ./deploy.sh --destroy serverless-site docs-site [--auto-approve]"
+  echo "   AWS_PROFILE=dev ./scripts/deploy.sh serverless-site marketing-site [--auto-approve]"
+  echo "   AWS_PROFILE=prod ./scripts/deploy.sh --destroy serverless-site docs-site [--auto-approve]"
   exit 1
 fi
 
@@ -72,17 +72,19 @@ echo "   AWS Region:  $TF_REGION"
 echo "   Working Dir: $WORKDIR"
 echo
 
-# Add --non-interactive if destroy and auto-approve
-DESTROY_FLAGS=()
-if [[ "$ACTION" == "destroy" && "${EXTRA_ARGS[*]}" =~ "--auto-approve" ]]; then
-  DESTROY_FLAGS+=(--non-interactive)
+# Add --non-interactive if --auto-approve is used (apply or destroy)
+NON_INTERACTIVE_FLAGS=()
+if [[ "${EXTRA_ARGS[*]}" =~ "--auto-approve" ]]; then
+  NON_INTERACTIVE_FLAGS+=(--non-interactive)
 fi
 
-# Initialize and run terragrunt in isolated dir
+# Terragrunt init
 terragrunt run-all init \
-  --working-dir "$WORKDIR"
+  --working-dir "$WORKDIR" \
+  "${NON_INTERACTIVE_FLAGS[@]}"
 
+# Main apply or destroy
 terragrunt run-all "$ACTION" \
   --working-dir "$WORKDIR" \
   "${EXTRA_ARGS[@]}" \
-  "${DESTROY_FLAGS[@]}"
+  "${NON_INTERACTIVE_FLAGS[@]}"
