@@ -11,17 +11,12 @@ provider "aws" {
   region = var.aws_region
 }
 
-variable "nickname" {
-  description = "The nickname for the Route53 zone (used in Parameter Store)"
-  type        = string
-}
-
 data "aws_ssm_parameter" "config" {
   name = "/iac/route53-zone/${var.nickname}/config"
 }
 
 locals {
-  config        = jsondecode(data.aws_ssm_parameter.config.value)
+  config        = jsondecode(nonsensitive(data.aws_ssm_parameter.config.value))
   zone_name     = local.config.zone_name
   comment       = try(local.config.comment, "Managed by Terraform")
   tags          = try(local.config.tags, {})
