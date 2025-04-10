@@ -1,9 +1,8 @@
 locals {
+  account_id     = get_env("TF_ACCOUNT_ID", "")
+  region         = get_env("TF_REGION", "")
   component_name = get_env("TF_COMPONENT", "")
   nickname       = get_env("TF_NICKNAME", "")
-
-  account_id     = run_cmd("aws", "sts", "get-caller-identity", "--query", "Account", "--output", "text")
-  region         = run_cmd("aws", "configure", "get", "region")
 
   source_path    = "${get_repo_root()}/components/${local.component_name}"
 

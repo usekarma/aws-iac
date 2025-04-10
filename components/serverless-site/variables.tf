@@ -1,10 +1,10 @@
-variable "nickname" {
-  description = "Unique name for this site deployment"
+variable "aws_region" {
   type        = string
+  description = "The AWS region to use"
+  default     = "us-east-1"
 }
 
-variable "aws_region" {
-  description = "AWS region to deploy into"
+variable "nickname" {
   type        = string
-  default     = "us-east-1"
+  description = "Logical nickname (used for config path and resource resolution)"
 }

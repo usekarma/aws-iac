@@ -45,14 +45,6 @@ if [[ -z "${AWS_PROFILE:-}" ]]; then
   exit 1
 fi
 
-# Ensure region is configured in the AWS profile
-REGION=$(aws configure get region --profile "$AWS_PROFILE" || true)
-if [[ -z "$REGION" ]]; then
-  echo "❌ Error: No region configured for AWS_PROFILE='$AWS_PROFILE'."
-  echo "👉 Run: aws configure --profile $AWS_PROFILE"
-  exit 1
-fi
-
 if [[ -z "${COMPONENT:-}" || -z "${NICKNAME:-}" ]]; then
   echo "❌ Usage:"
   echo "   AWS_PROFILE=dev ./deploy.sh serverless-site marketing-site [--auto-approve]"
@@ -63,25 +55,34 @@ fi
 # Set dynamic inputs
 export TF_COMPONENT="$COMPONENT"
 export TF_NICKNAME="$NICKNAME"
+export TF_ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+export TF_REGION=$(aws configure get region)
 
-# Create isolated working directory per run
-WORKDIR=".terragrunt-work/${COMPONENT}-${NICKNAME}"
+# Set isolated working directory
+WORKDIR=".terragrunt-work/${TF_ACCOUNT_ID}/${COMPONENT}/${NICKNAME}"
 mkdir -p "$WORKDIR"
 cp terragrunt.hcl "$WORKDIR/"
 
 echo "🚀 Running terragrunt $ACTION"
-echo "   Component:  $COMPONENT"
-echo "   Nickname:   $NICKNAME"
+echo "   Component:   $COMPONENT"
+echo "   Nickname:    $NICKNAME"
 echo "   AWS Profile: $AWS_PROFILE"
-echo "   AWS Account: $(aws sts get-caller-identity --query 'Account' --output text)"
-echo "   AWS Region:    $REGION"
+echo "   AWS Account: $TF_ACCOUNT_ID"
+echo "   AWS Region:  $TF_REGION"
 echo "   Working Dir: $WORKDIR"
 echo
 
-# Run Terragrunt from the isolated directory
+# Add --non-interactive if destroy and auto-approve
+DESTROY_FLAGS=()
+if [[ "$ACTION" == "destroy" && "${EXTRA_ARGS[*]}" =~ "--auto-approve" ]]; then
+  DESTROY_FLAGS+=(--non-interactive)
+fi
+
+# Initialize and run terragrunt in isolated dir
 terragrunt run-all init \
-  --terragrunt-working-dir "$WORKDIR"
+  --working-dir "$WORKDIR"
 
 terragrunt run-all "$ACTION" \
-  --terragrunt-working-dir "$WORKDIR" \
-  "${EXTRA_ARGS[@]}"
+  --working-dir "$WORKDIR" \
+  "${EXTRA_ARGS[@]}" \
+  "${DESTROY_FLAGS[@]}"
