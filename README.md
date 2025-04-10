@@ -21,7 +21,8 @@ aws-iac/
 │   ├── vpc/               # Reusable VPC module
 │   ├── aurora-postgres/   # Reusable Aurora RDS module
 │   └── ...
-├── modules/
+├── scripts/
+│   └── deploy.sh          # Terragrunt-based wrapper for deploying individual components
 ├── README.md
 ```
 
@@ -58,9 +59,10 @@ If the config is missing, Terraform will fail with a validation error.
 Once the config is found, Terraform proceeds with deployment and publishes the runtime metadata.
 
 ```bash
-terraform init
-terraform apply -var="nickname=main-vpc"
+AWS_PROFILE=dev ./scripts/deploy.sh vpc main-vpc --auto-approve
 ```
+
+The `deploy.sh` script automatically sets up isolated working directories and injects `terragrunt.hcl` context dynamically.
 
 ---
 
@@ -81,7 +83,7 @@ This config must be stored in Parameter Store at `/iac/vpc/main-vpc/config`.
 ### 2. Deploy the VPC Using Terraform
 
 ```bash
-terraform apply -var="nickname=main-vpc"
+AWS_PROFILE=dev ./scripts/deploy.sh vpc main-vpc
 ```
 
 ### 3. Runtime Info Is Registered Automatically
@@ -142,3 +144,4 @@ To adopt this in your own environment:
 1. Fork this repo and define your own components.
 2. Use `aws-config` to manage deployment inputs.
 3. Integrate with CI/CD to automate validation and deployment workflows.
+4. Use `scripts/deploy.sh` to safely apply or destroy individual components.
