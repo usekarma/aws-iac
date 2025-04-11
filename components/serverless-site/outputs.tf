@@ -14,6 +14,12 @@ output "content_bucket_name" {
   sensitive   = true
 }
 
+output "custom_domain" {
+  description = "Primary custom domain if enabled"
+  value       = local.enable_custom_domain ? local.site_name : null
+  sensitive   = true
+}
+
 output "runtime_parameter_path" {
   description = "SSM Parameter Store path where runtime data was written"
   value       = aws_ssm_parameter.runtime.name

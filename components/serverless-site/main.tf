@@ -181,6 +181,7 @@ resource "aws_ssm_parameter" "runtime" {
   value = jsonencode({
     content_bucket_prefix          = local.bucket_name,
     cloudfront_distribution_id     = aws_cloudfront_distribution.site.id,
-    cloudfront_distribution_domain = aws_cloudfront_distribution.site.domain_name
+    cloudfront_distribution_domain = aws_cloudfront_distribution.site.domain_name,
+    custom_domain                  = local.enable_custom_domain ? local.site_name : null
   })
 }
