@@ -4,6 +4,8 @@
 
 This repository contains reusable **Terraform modules** for deploying AWS infrastructure **dynamically** based on configurations stored in AWS Parameter Store.
 
+For a complete overview, see [Adage: AWS Deployment Framework](https://github.com/tstrall/adage).
+
 ### Key Features
 
 - **Decouples infrastructure from deployment** – Terraform only deploys what’s pre-approved in the config repo.
@@ -34,7 +36,7 @@ This framework uses named AWS CLI profiles to authenticate into different AWS ac
 
 To configure AWS SSO and optionally customize your shell prompt for safety and visibility, see:
 
-📄 [`setup/bash-aws-profile-prompt.md`](https://github.com/tstrall/aws-deployment-guide/blob/main/setup/bash-aws-profile-prompt.md)
+📄 [`setup/bash-aws-profile-prompt.md`](https://github.com/tstrall/adage/blob/main/setup/bash-aws-profile-prompt.md)
 
 ---
 
@@ -133,7 +135,7 @@ This repository is part of a broader open-source deployment framework focused on
 
 It is developed independently as part of a modular, extensible architecture designed to support long-term maintainability, auditability, and reuse.
 
-For a complete overview, see the [aws-deployment-guide](https://github.com/tstrall/aws-deployment-guide).
+For a complete overview, see [Adage: AWS Deployment Framework](https://github.com/tstrall/adage).
 
 ---
 
