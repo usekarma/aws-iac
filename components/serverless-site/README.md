@@ -1,5 +1,7 @@
 # Serverless Site Component
 
+![Serverless Static Website](../../img/serverless-site.drawio.png)
+
 This Terraform component deploys a static, HTTPS-enabled website hosted on S3 and served via Amazon CloudFront. It supports both default and custom domains, and integrates cleanly with config-first, multi-account setups using ACM, Route 53, and Parameter Store.
 
 ---
