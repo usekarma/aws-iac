@@ -5,6 +5,8 @@ set -euo pipefail
 # Usage:
 #   AWS_PROFILE=dev ./deploy.sh serverless-site marketing-site
 #   AWS_PROFILE=prod ./deploy.sh --destroy serverless-site docs-site --auto-approve
+#   AWS_PROFILE=dev ./deploy.sh --plan serverless-site docs-site
+#   AWS_PROFILE=dev ./deploy.sh --validate serverless-site docs-site
 # ------------------------
 
 ACTION="apply"
@@ -15,6 +17,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -d|--destroy)
       ACTION="destroy"
+      shift
+      ;;
+    --plan)
+      ACTION="plan"
+      shift
+      ;;
+    --validate)
+      ACTION="validate"
       shift
       ;;
     --auto-approve)
@@ -49,6 +59,8 @@ if [[ -z "${COMPONENT:-}" || -z "${NICKNAME:-}" ]]; then
   echo "❌ Usage:"
   echo "   AWS_PROFILE=dev ./scripts/deploy.sh serverless-site marketing-site [--auto-approve]"
   echo "   AWS_PROFILE=prod ./scripts/deploy.sh --destroy serverless-site docs-site [--auto-approve]"
+  echo "   AWS_PROFILE=dev ./scripts/deploy.sh --plan serverless-site docs-site"
+  echo "   AWS_PROFILE=dev ./scripts/deploy.sh --validate serverless-site docs-site"
   exit 1
 fi
 
@@ -72,18 +84,18 @@ echo "   AWS Region:  $TF_REGION"
 echo "   Working Dir: $WORKDIR"
 echo
 
-# Add --non-interactive if --auto-approve is used (apply or destroy)
+# Add --non-interactive if --auto-approve is used
 NON_INTERACTIVE_FLAGS=()
 if [[ "${EXTRA_ARGS[*]}" =~ "--auto-approve" ]]; then
   NON_INTERACTIVE_FLAGS+=(--non-interactive)
 fi
 
-# Terragrunt init
+# Terragrunt init (safe for all actions)
 terragrunt run-all init \
   --working-dir "$WORKDIR" \
   "${NON_INTERACTIVE_FLAGS[@]}"
 
-# Main apply or destroy
+# Main command
 terragrunt run-all "$ACTION" \
   --working-dir "$WORKDIR" \
   "${EXTRA_ARGS[@]}" \
