@@ -88,9 +88,23 @@ resource "aws_cloudfront_function" "rewrite_index_html" {
 function handler(event) {
   var request = event.request;
   var uri = request.uri;
+
+  // Redirect /about → /about/
+  if (!uri.endsWith('/') && !uri.includes('.')) {
+    return {
+      statusCode: 301,
+      statusDescription: 'Moved Permanently',
+      headers: {
+        "location": { "value": uri + "/" }
+      }
+    };
+  }
+
+  // Rewrite /about/ → /about/index.html
   if (uri.endsWith('/')) {
     request.uri += 'index.html';
   }
+
   return request;
 }
 EOF
