@@ -6,12 +6,16 @@ This repository contains reusable **Terraform modules** for deploying AWS infras
 
 For a complete overview, see [Adage: AWS Deployment Framework](https://github.com/usekarma/adage).
 
+---
+
 ### Key Features
 
 - **Decouples infrastructure from deployment** – Terraform only deploys what’s pre-approved in the config repo.
 - **No hardcoded environments** – Everything is dynamically resolved at runtime.
 - **Uses AWS Parameter Store for configurations** – Ensures deployments are controlled via Git.
-- **Integrates with `aws-config` and `aws-lambda`** – Supports a fully configuration-driven AWS deployment model.
+- **Supports dynamic runtime resolution** – No Terraform state sharing required across modules.
+- **Configurable prefix (`/iac`)** – Set `IAC_PREFIX` to change Parameter Store paths across the entire stack.
+- **Integrates with `aws-config` and `aws-lambda`** – Enables a fully configuration-driven AWS deployment model.
 
 ---
 
@@ -25,6 +29,7 @@ aws-iac/
 │   └── ...
 ├── scripts/
 │   └── deploy.sh          # Terragrunt-based wrapper for deploying individual components
+├── terragrunt.hcl         # Root configuration for remote state + inputs
 ├── README.md
 ```
 
@@ -42,35 +47,41 @@ To configure AWS SSO and optionally customize your shell prompt for safety and v
 
 ## How It Works
 
-### 1. Requires Predefined Configuration
+### 1. Configuration Must Already Exist
 
-Terraform does not deploy anything unless configuration already exists in AWS Parameter Store.  
-All configuration is authored and version-controlled in the [`aws-config`](https://github.com/usekarma/aws-config) repository.
+Terraform will not deploy anything unless configuration has already been published to AWS Parameter Store.
 
-For example, to deploy a VPC with the nickname `main-vpc`, Terraform looks for:
+All configuration is authored and version-controlled in the [`aws-config`](https://github.com/usekarma/aws-config) repository and published using approved scripts.
+
+For example, to deploy a VPC with the nickname `main-vpc`, the following must exist:
 
 ```
-/iac/vpc/main-vpc/config      # Must exist before apply
-/iac/vpc/main-vpc/runtime     # Created after deployment
+/iac/vpc/main-vpc/config      # Deployment input (set manually)
+/iac/vpc/main-vpc/runtime     # Deployment output (written by Terraform)
 ```
 
-If the config is missing, Terraform will fail with a validation error.
-
-### 2. Deploys Only Pre-Approved Components
-
-Once the config is found, Terraform proceeds with deployment and publishes the runtime metadata.
+You can override the prefix (`/iac`) using `IAC_PREFIX`:
 
 ```bash
-AWS_PROFILE=dev ./scripts/deploy.sh vpc main-vpc --auto-approve
+IAC_PREFIX=/karma AWS_PROFILE=dev ./scripts/deploy.sh vpc main-vpc
 ```
 
-The `deploy.sh` script automatically sets up isolated working directories and injects `terragrunt.hcl` context dynamically.
+---
+
+### 2. Deployment Uses `nickname` + `component`
+
+Each deployable instance is referenced by its:
+
+- **component name** (e.g., `vpc`, `aurora-postgres`)
+- **nickname** (e.g., `main-vpc`, `default-db`)
+
+The deploy wrapper passes these values into Terragrunt, which injects them as Terraform variables (`var.nickname`, `var.iac_prefix`, etc.).
 
 ---
 
 ## Example: Deploying a VPC
 
-### 1. Define the VPC Configuration (in `aws-config`)
+### 1. Define Configuration in `aws-config`
 
 ```json
 {
@@ -80,36 +91,54 @@ The `deploy.sh` script automatically sets up isolated working directories and in
 }
 ```
 
-This config must be stored in Parameter Store at `/iac/vpc/main-vpc/config`.
+Published to:
 
-### 2. Deploy the VPC Using Terraform
+```
+/iac/vpc/main-vpc/config
+```
+
+---
+
+### 2. Deploy the Component
 
 ```bash
 AWS_PROFILE=dev ./scripts/deploy.sh vpc main-vpc
 ```
 
-### 3. Runtime Info Is Registered Automatically
+The script:
 
-After deployment, Terraform stores runtime metadata at:
+- Sets up the working directory
+- Injects `nickname`, `iac_prefix`, and other Terragrunt variables
+- Applies the corresponding component under `components/vpc`
+
+---
+
+### 3. Runtime Metadata Is Published
+
+After deployment, Terraform writes runtime metadata to:
 
 ```
-/iac/vpc/main-vpc/runtime     # Contains VPC ID, subnet IDs, etc.
+/iac/vpc/main-vpc/runtime
 ```
 
-Other modules can consume this runtime info without referencing Terraform state.
+This includes:
+
+- VPC ID
+- Subnet IDs
+- Tags and routing information
 
 ---
 
 ## Dynamic Dependency Resolution
 
-Each deployed component publishes its runtime configuration to Parameter Store.  
-Dependent components can dynamically resolve what they need using native Terraform lookups.
+All components publish their runtime state to Parameter Store.  
+Other components can consume this without shared Terraform state.
 
 Example:
 
 ```hcl
 data "aws_ssm_parameter" "vpc_runtime" {
-  name = "/iac/vpc/main-vpc/runtime"
+  name = "${var.iac_prefix}/vpc/main-vpc/runtime"
 }
 
 locals {
@@ -117,15 +146,34 @@ locals {
 }
 ```
 
-This removes the need for shared state or explicit module dependencies.
+This allows for completely dynamic and decoupled dependency graphs.
+
+---
+
+## Configuration Prefix: `IAC_PREFIX`
+
+The prefix used in Parameter Store defaults to:
+
+```
+/iac
+```
+
+You can override this globally for any deploy:
+
+```bash
+IAC_PREFIX=/karma AWS_PROFILE=dev ./scripts/deploy.sh aurora-postgres default-db
+```
+
+Each Terraform module must accept `iac_prefix` as an input and use it in any Parameter Store lookups.
 
 ---
 
 ## Security and Governance
 
-- **Prevents unauthorized deployments** – Only pre-approved configurations can be applied.
-- **Enforces auditability** – All infrastructure is version-controlled via Git.
-- **Supports secure secrets** – Sensitive values can be stored in AWS Secrets Manager and referenced during deployment.
+- **Prevents unauthorized changes** – Terraform fails if no config exists in Parameter Store
+- **Enforces Git review** – All configuration is stored and approved via `aws-config`
+- **Locks down environments** – IAM permissions can restrict Parameter Store access
+- **Supports Secrets Manager** – Use for secure values alongside non-secret config
 
 ---
 
@@ -133,17 +181,13 @@ This removes the need for shared state or explicit module dependencies.
 
 This repository is part of a broader open-source deployment framework focused on configuration-driven infrastructure in AWS.
 
-It is developed independently as part of a modular, extensible architecture designed to support long-term maintainability, auditability, and reuse.
-
-For a complete overview, see [Adage: AWS Deployment Framework](https://github.com/usekarma/adage).
+It is maintained as part of the [Adage](https://github.com/usekarma/adage) project and supports scalable, multi-environment, multi-account architecture patterns.
 
 ---
 
 ## Next Steps
 
-To adopt this in your own environment:
-
-1. Fork this repo and define your own components.
-2. Use `aws-config` to manage deployment inputs.
-3. Integrate with CI/CD to automate validation and deployment workflows.
-4. Use `scripts/deploy.sh` to safely apply or destroy individual components.
+1. Fork this repo and define your own components under `components/`
+2. Use [`aws-config`](https://github.com/usekarma/aws-config) to publish deployment inputs
+3. Use `scripts/deploy.sh` to deploy components safely
+4. Inject `IAC_PREFIX` as needed for alternate frameworks or naming schemes

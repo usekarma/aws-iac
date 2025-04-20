@@ -12,7 +12,7 @@ provider "aws" {
 }
 
 data "aws_ssm_parameter" "config" {
-  name = "/iac/route53-zone/${var.nickname}/config"
+  name = "${var.iac_prefix}/route53-zone/${var.nickname}/config"
 }
 
 locals {

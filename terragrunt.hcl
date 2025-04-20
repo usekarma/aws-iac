@@ -3,6 +3,7 @@ locals {
   region         = get_env("TF_REGION", "")
   component_name = get_env("TF_COMPONENT", "")
   nickname       = get_env("TF_NICKNAME", "")
+  iac_prefix     = get_env("IAC_PREFIX", "/iac")
 
   source_path    = "${get_repo_root()}/components/${local.component_name}"
 
@@ -16,8 +17,9 @@ terraform {
 }
 
 inputs = {
-  nickname = local.nickname
-  region   = local.region
+  nickname   = local.nickname
+  region     = local.region
+  iac_prefix = local.iac_prefix
 }
 
 remote_state {

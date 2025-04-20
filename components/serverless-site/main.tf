@@ -17,7 +17,7 @@ provider "aws" {
 }
 
 data "aws_ssm_parameter" "config" {
-  name = "/iac/serverless-site/${var.nickname}/config"
+  name = "${var.iac_prefix}/serverless-site/${var.nickname}/config"
 }
 
 data "aws_route53_zone" "zone" {
