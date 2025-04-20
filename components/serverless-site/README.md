@@ -73,7 +73,7 @@ These values can be consumed by deployment scripts or monitoring dashboards.
 - The component **does not** require any code changes to enable custom domains — only config.
 - If a custom domain is enabled:
   - An ACM certificate is requested and validated via Route 53
-  - The certificate is created via the reusable [`acm-certificate`](https://github.com/tstrall/aws-modules/tree/main/acm-certificate) module
+  - The certificate is created via the reusable [`acm-certificate`](https://github.com/usekarma/aws-modules/tree/main/acm-certificate) module
   - A Route 53 A-record alias is created for each domain
 
 ---

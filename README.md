@@ -4,7 +4,7 @@
 
 This repository contains reusable **Terraform modules** for deploying AWS infrastructure **dynamically** based on configurations stored in AWS Parameter Store.
 
-For a complete overview, see [Adage: AWS Deployment Framework](https://github.com/tstrall/adage).
+For a complete overview, see [Adage: AWS Deployment Framework](https://github.com/usekarma/adage).
 
 ### Key Features
 
@@ -36,7 +36,7 @@ This framework uses named AWS CLI profiles to authenticate into different AWS ac
 
 To configure AWS SSO and optionally customize your shell prompt for safety and visibility, see:
 
-📄 [`setup/bash-aws-profile-prompt.md`](https://github.com/tstrall/adage/blob/main/setup/bash-aws-profile-prompt.md)
+📄 [`setup/bash-aws-profile-prompt.md`](https://github.com/usekarma/adage/blob/main/setup/bash-aws-profile-prompt.md)
 
 ---
 
@@ -45,7 +45,7 @@ To configure AWS SSO and optionally customize your shell prompt for safety and v
 ### 1. Requires Predefined Configuration
 
 Terraform does not deploy anything unless configuration already exists in AWS Parameter Store.  
-All configuration is authored and version-controlled in the [`aws-config`](https://github.com/tstrall/aws-config) repository.
+All configuration is authored and version-controlled in the [`aws-config`](https://github.com/usekarma/aws-config) repository.
 
 For example, to deploy a VPC with the nickname `main-vpc`, Terraform looks for:
 
@@ -135,7 +135,7 @@ This repository is part of a broader open-source deployment framework focused on
 
 It is developed independently as part of a modular, extensible architecture designed to support long-term maintainability, auditability, and reuse.
 
-For a complete overview, see [Adage: AWS Deployment Framework](https://github.com/tstrall/adage).
+For a complete overview, see [Adage: AWS Deployment Framework](https://github.com/usekarma/adage).
 
 ---
 

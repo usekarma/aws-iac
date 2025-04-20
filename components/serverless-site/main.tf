@@ -111,7 +111,7 @@ EOF
 }
 
 module "acm_certificate" {
-  source = "git::https://github.com/tstrall/aws-modules.git//acm-certificate?ref=main"
+  source = "git::https://github.com/usekarma/aws-modules.git//acm-certificate?ref=main"
 
   providers = {
     aws = aws.us_east_1
