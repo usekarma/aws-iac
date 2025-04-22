@@ -1,48 +1,21 @@
-terraform {
-  # 🚨 DO NOT MODIFY THIS BACKEND BLOCK!
-  # This empty backend block is required for compatibility with Terragrunt.
-  # Terragrunt dynamically injects the actual S3/DynamoDB configuration.
-  # Any changes here will be ignored — and could break Terragrunt compatibility.
+locals {
+  # Domain config
+  enable_custom_domain = try(nonsensitive(local.config.enable_custom_domain), false)
+  bucket_name          = local.config.content_bucket_prefix
+  domain_aliases       = try(nonsensitive(local.config.domain_aliases), [])
+  site_name            = try(nonsensitive(local.config.site_name), null)
+  zone_name            = try(nonsensitive(local.config.route53_zone_name), null)
 
-  backend "s3" {}
-}
-
-provider "aws" {
-  region = var.aws_region
-}
-
-provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
-}
-
-data "aws_ssm_parameter" "config" {
-  name = "${var.iac_prefix}/serverless-site/${var.nickname}/config"
+  # Route 53 A alias mapping (for CloudFront)
+  a_alias_map = local.enable_custom_domain && local.zone_name != null ? {
+    for domain in distinct(concat([local.site_name], local.domain_aliases)) :
+    domain => domain
+  } : {}
 }
 
 data "aws_route53_zone" "zone" {
   count = local.enable_custom_domain && local.zone_name != null ? 1 : 0
   name  = local.zone_name
-}
-
-locals {
-  config               = jsondecode(data.aws_ssm_parameter.config.value)
-  enable_custom_domain = try(local.config.enable_custom_domain, false)
-  bucket_name          = local.config.content_bucket_prefix
-  tags                 = local.config.tags
-  domain_aliases       = try(local.config.domain_aliases, [])
-  site_name            = try(local.config.site_name, null)
-  zone_name            = try(local.config.route53_zone_name, null)
-
-  enable_custom_domain_desensitized = try(nonsensitive(local.enable_custom_domain), false)
-  site_name_desensitized            = try(nonsensitive(local.site_name), "")
-  domain_aliases_desensitized       = try(nonsensitive(local.domain_aliases), [])
-  zone_name_desensitized            = try(nonsensitive(local.zone_name), "")
-
-  a_alias_map = local.enable_custom_domain_desensitized && local.zone_name_desensitized != "" ? {
-    for domain in distinct(concat([local.site_name_desensitized], local.domain_aliases_desensitized)) :
-    domain => domain
-  } : {}
 }
 
 resource "aws_s3_bucket" "site" {
@@ -190,7 +163,7 @@ resource "aws_route53_record" "a_aliases" {
 }
 
 resource "aws_ssm_parameter" "runtime" {
-  name  = "/iac/serverless-site/${var.nickname}/runtime"
+  name = local.runtime_path
   type  = "String"
   value = jsonencode({
     content_bucket_prefix          = local.bucket_name,

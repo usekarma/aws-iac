@@ -1,11 +1,3 @@
-terraform {
-  backend "s3" {}
-}
-
-provider "aws" {
-  region = var.aws_region
-}
-
 module "email_forwarding" {
   source = "git::https://github.com/arithmetric/aws-lambda-ses-forwarder.git?ref=master"
 

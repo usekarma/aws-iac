@@ -1,25 +1,6 @@
-terraform {
-  # 🚨 DO NOT MODIFY THIS BACKEND BLOCK!
-  # This empty backend block is required for compatibility with Terragrunt.
-  # Terragrunt dynamically injects the actual S3/DynamoDB configuration.
-  # Any changes here will be ignored — and could break Terragrunt compatibility.
-
-  backend "s3" {}
-}
-
-provider "aws" {
-  region = var.aws_region
-}
-
-data "aws_ssm_parameter" "config" {
-  name = "${var.iac_prefix}/route53-zone/${var.nickname}/config"
-}
-
 locals {
-  config        = jsondecode(nonsensitive(data.aws_ssm_parameter.config.value))
   zone_name     = local.config.zone_name
   comment       = try(local.config.comment, "Managed by Terraform")
-  tags          = try(local.config.tags, {})
   root_records  = try(local.config.root_records, {})
 }
 

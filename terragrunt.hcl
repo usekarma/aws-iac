@@ -17,9 +17,10 @@ terraform {
 }
 
 inputs = {
-  nickname   = local.nickname
-  region     = local.region
-  iac_prefix = local.iac_prefix
+  component_name = local.component_name
+  nickname       = local.nickname
+  region         = local.region
+  iac_prefix     = local.iac_prefix
 }
 
 remote_state {

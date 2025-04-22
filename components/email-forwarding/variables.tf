@@ -1,8 +1,3 @@
-variable "aws_region" {
-  description = "AWS region"
-  type        = string
-}
-
 variable "domain" {
   description = "Domain name to receive email for"
   type        = string
