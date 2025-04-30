@@ -22,7 +22,14 @@ data "aws_ssm_parameter" "config" {
 
 locals {
   config = try(nonsensitive(jsondecode(data.aws_ssm_parameter.config.value)), {})
-  tags   = try(local.config.tags, {})
+
+  tags = merge(
+    {
+      Project   = try(local.config.project, var.nickname)
+      Component = var.component_name
+    },
+    try(local.config.tags, {})
+  )
 
   config_path  = data.aws_ssm_parameter.config.name
   runtime_path = "${var.iac_prefix}/${var.component_name}/${var.nickname}/runtime"
@@ -36,12 +43,12 @@ variable "region" {
 
 variable "component_name" {
   type        = string
-  description = "Name of the component (e.g. 'serverless-site')"
+  description = "Name of the component"
 }
 
 variable "nickname" {
   type        = string
-  description = "Nickname (e.g. 'strall-com')"
+  description = "Nickname"
 }
 
 variable "iac_prefix" {
