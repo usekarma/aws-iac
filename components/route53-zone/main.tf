@@ -63,4 +63,7 @@ resource "aws_ssm_parameter" "runtime" {
     zone_arn     = aws_route53_zone.zone.arn,
     name_servers = aws_route53_zone.zone.name_servers
   })
+
+  overwrite = true
+  tier      = "Standard"
 }

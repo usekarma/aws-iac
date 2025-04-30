@@ -94,4 +94,7 @@ resource "aws_ssm_parameter" "runtime" {
     stage_name       = local.stage_name,
     custom_domain    = local.enable_custom_domain ? local.domain_name : null
   })
+
+  overwrite = true
+  tier      = "Standard"
 }

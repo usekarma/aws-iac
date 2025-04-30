@@ -171,4 +171,7 @@ resource "aws_ssm_parameter" "runtime" {
     cloudfront_distribution_domain = aws_cloudfront_distribution.site.domain_name,
     custom_domain                  = local.enable_custom_domain ? local.site_name : null
   })
+
+  overwrite = true
+  tier      = "Standard"
 }
