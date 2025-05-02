@@ -90,6 +90,9 @@ if [[ "${EXTRA_ARGS[*]}" =~ "--auto-approve" ]]; then
   NON_INTERACTIVE_FLAGS+=(--non-interactive)
 fi
 
+# Temporary override
+NON_INTERACTIVE_FLAGS+=(--non-interactive)
+
 # Terragrunt init (safe for all actions)
 terragrunt run-all init \
   --working-dir "$WORKDIR" \

@@ -1,0 +1,5 @@
+{
+    "iac_base": "/iac",
+    "component": "serverless-rest",
+    "nickname": "karma-api"
+}
