@@ -1,6 +1,6 @@
 # Serverless REST Component
 
-![Serverless REST API](../../img/serverless-rest.drawio.png)
+![Serverless REST API](../../img/serverless-api.drawio.png)
 
 This Terraform component deploys an Amazon API Gateway **HTTP API** using an OpenAPI 3.0 definition stored in S3. Lambda integrations are resolved dynamically using nicknames in the OpenAPI spec, mapped to ARNs via SSM Parameter Store.
 
@@ -21,21 +21,21 @@ This Terraform component deploys an Amazon API Gateway **HTTP API** using an Ope
 Deploy with:
 
 ```bash
-AWS_PROFILE=prod-iac ./scripts/deploy.sh serverless-rest karma-api --auto-approve
+AWS_PROFILE=prod-iac ./scripts/deploy.sh serverless-api karma-api --auto-approve
 ```
 
 This will:
 
-1. Read config from: `/iac/serverless-rest/karma-api/config`
+1. Read config from: `/iac/serverless-api/karma-api/config`
 2. Resolve OpenAPI pointer from: `/iac/openapi/karma-api/runtime`
 3. Resolve Lambda nicknames via: `/iac/lambda/<nickname>/runtime`
 4. Deploy an HTTP API Gateway with integrations
 5. Optionally configure a custom domain
-6. Write runtime output to: `/iac/serverless-rest/karma-api/runtime`
+6. Write runtime output to: `/iac/serverless-api/karma-api/runtime`
 
 ---
 
-## Required Inputs (`/iac/serverless-rest/<nickname>/config`)
+## Required Inputs (`/iac/serverless-api/<nickname>/config`)
 
 ```json
 {
@@ -89,7 +89,7 @@ This allows API deployments to remain stable even as Lambda code evolves.
 
 ---
 
-## Outputs (`/iac/serverless-rest/<nickname>/runtime`)
+## Outputs (`/iac/serverless-api/<nickname>/runtime`)
 
 ```json
 {

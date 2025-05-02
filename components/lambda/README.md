@@ -6,7 +6,7 @@ This Terraform component creates placeholder AWS Lambda functions based on a JSO
 
 ## Purpose
 
-This component registers Lambda functions by nickname, so other components (e.g. `serverless-rest`) can reference them dynamically. It does **not** manage Lambda source code or deployments directly.
+This component registers Lambda functions by nickname, so other components (e.g. `serverless-api`) can reference them dynamically. It does **not** manage Lambda source code or deployments directly.
 
 ---
 
