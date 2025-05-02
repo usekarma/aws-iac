@@ -3,6 +3,7 @@
 import boto3
 import json
 import sys
+import argparse
 from urllib.parse import urlparse
 
 try:
@@ -13,7 +14,6 @@ except ImportError:
 
 ssm = boto3.client("ssm")
 s3 = boto3.client("s3")
-
 
 def get_ssm_parameter(name):
     try:
@@ -27,7 +27,6 @@ def get_ssm_parameter(name):
         print(f"❌ Error fetching SSM parameter {name}: {e}", file=sys.stderr)
         sys.exit(1)
 
-
 def fetch_s3_object(s3_url):
     parsed = urlparse(s3_url)
     bucket = parsed.netloc
@@ -39,25 +38,18 @@ def fetch_s3_object(s3_url):
         print(f"❌ Error fetching S3 object {s3_url}: {e}", file=sys.stderr)
         sys.exit(1)
 
-
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true", help="Validate and print resolved mappings without outputting JSON")
+    args = parser.parse_args()
+
     query = json.load(sys.stdin)
     iac_base = query["iac_base"]
-    component = query["component"]
     nickname = query["nickname"]
-    base_path = f"{iac_base}/{component}/{nickname}"
 
-    # Step 1: Resolve component config
-    config = get_ssm_parameter(f"{base_path}/config")
-    openapi_nickname = config.get("openapi")
-    if not openapi_nickname:
-        print("❌ Missing 'openapi' field in config", file=sys.stderr)
-        sys.exit(1)
-
-    # Step 2: Get OpenAPI source location
-    openapi_config = get_ssm_parameter(f"{iac_base}/openapi/{openapi_nickname}/runtime")
-    source = openapi_config.get("source")
-    inline_definition = openapi_config.get("definition")
+    openapi_runtime = get_ssm_parameter(f"{iac_base}/openapi/{nickname}/runtime")
+    source = openapi_runtime.get("source")
+    inline_definition = openapi_runtime.get("definition")
 
     if source and source.startswith("s3://"):
         openapi_text = fetch_s3_object(source)
@@ -75,13 +67,12 @@ def main():
         print(f"❌ Failed to parse OpenAPI YAML: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 3: Resolve Lambda nicknames
     lambda_integrations = {}
     for path, methods in openapi.get("paths", {}).items():
         for method, operation in methods.items():
-            nickname = operation.get("x-lambda-nickname")
-            if nickname:
-                lambda_runtime_path = f"{iac_base}/lambda/{nickname}/runtime"
+            lambda_nick = operation.get("x-lambda-nickname")
+            if lambda_nick:
+                lambda_runtime_path = f"{iac_base}/lambda/{lambda_nick}/runtime"
                 runtime_data = get_ssm_parameter(lambda_runtime_path)
 
                 if isinstance(runtime_data, dict) and "arn" in runtime_data:
@@ -89,9 +80,7 @@ def main():
                 elif isinstance(runtime_data, str):
                     lambda_arn = runtime_data
                 else:
-                    print(f"❌ Lambda '{nickname}' is missing a valid runtime ARN.", file=sys.stderr)
-                    print(f"SSM value at {lambda_runtime_path} = {json.dumps(runtime_data, indent=2)}", file=sys.stderr)
-                    print("💡 Hint: Run `deploy_lambda.py {nickname}` before deploying the API.", file=sys.stderr)
+                    print(f"❌ Lambda '{lambda_nick}' is missing a valid runtime ARN.", file=sys.stderr)
                     sys.exit(1)
 
                 route_key = f"{method.upper()} {path}"
@@ -101,10 +90,15 @@ def main():
         print("❌ No Lambda nicknames resolved from OpenAPI", file=sys.stderr)
         sys.exit(1)
 
+    if args.dry_run:
+        print("🔍 Resolved Lambda integrations:")
+        for k, v in lambda_integrations.items():
+            print(f"  {k}: {v}")
+        sys.exit(0)
+
     json.dump({
         "lambda_integrations": json.dumps(lambda_integrations)
     }, sys.stdout)
-
 
 if __name__ == "__main__":
     main()

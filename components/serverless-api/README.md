@@ -1,6 +1,6 @@
-# Serverless REST Component
+# Serverless API Component
 
-![Serverless REST API](../../img/serverless-api.drawio.png)
+![Serverless API](../../img/serverless-api.drawio.png)
 
 This Terraform component deploys an Amazon API Gateway **HTTP API** using an OpenAPI 3.0 definition stored in S3. Lambda integrations are resolved dynamically using nicknames in the OpenAPI spec, mapped to ARNs via SSM Parameter Store.
 

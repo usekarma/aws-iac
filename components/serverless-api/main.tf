@@ -34,13 +34,13 @@ module "acm_certificate" {
   tags        = local.tags
 }
 
-resource "aws_apigatewayv2_api" "rest_api" {
+resource "aws_apigatewayv2_api" "http_api" {
   name          = local.api_name
   protocol_type = "HTTP"
 }
 
 resource "aws_apigatewayv2_stage" "default" {
-  api_id      = aws_apigatewayv2_api.rest_api.id
+  api_id      = aws_apigatewayv2_api.http_api.id
   name        = local.stage_name
   auto_deploy = true
 }
@@ -59,7 +59,7 @@ resource "aws_apigatewayv2_domain_name" "custom" {
 
 resource "aws_apigatewayv2_api_mapping" "mapping" {
   count       = local.enable_custom_domain ? 1 : 0
-  api_id      = aws_apigatewayv2_api.rest_api.id
+  api_id      = aws_apigatewayv2_api.http_api.id
   stage       = aws_apigatewayv2_stage.default.id
   domain_name = aws_apigatewayv2_domain_name.custom[0].id
 }
@@ -84,15 +84,15 @@ resource "aws_lambda_permission" "api" {
   action        = "lambda:InvokeFunction"
   function_name = each.value
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.rest_api.execution_arn}/*/*"
+  source_arn    = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
 
-  depends_on = [aws_apigatewayv2_api.rest_api]
+  depends_on = [aws_apigatewayv2_api.http_api]
 }
 
 resource "aws_apigatewayv2_integration" "lambda" {
   for_each = local.lambda_integrations
 
-  api_id             = aws_apigatewayv2_api.rest_api.id
+  api_id             = aws_apigatewayv2_api.http_api.id
   integration_type   = "AWS_PROXY"
   integration_uri    = each.value
   integration_method = "POST"
@@ -104,7 +104,7 @@ resource "aws_apigatewayv2_integration" "lambda" {
 resource "aws_apigatewayv2_route" "lambda" {
   for_each = local.lambda_integrations
 
-  api_id    = aws_apigatewayv2_api.rest_api.id
+  api_id    = aws_apigatewayv2_api.http_api.id
   route_key = each.key
   target    = "integrations/${aws_apigatewayv2_integration.lambda[each.key].id}"
 }
@@ -113,8 +113,8 @@ resource "aws_ssm_parameter" "runtime" {
   name  = local.runtime_path
   type  = "String"
   value = jsonencode({
-    api_id        = aws_apigatewayv2_api.rest_api.id,
-    api_endpoint  = aws_apigatewayv2_api.rest_api.api_endpoint,
+    api_id        = aws_apigatewayv2_api.http_api.id,
+    api_endpoint  = aws_apigatewayv2_api.http_api.api_endpoint,
     stage_name    = local.stage_name,
     custom_domain = local.enable_custom_domain ? local.domain_name : null
   })
