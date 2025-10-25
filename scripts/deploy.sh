@@ -94,12 +94,12 @@ fi
 NON_INTERACTIVE_FLAGS+=(--non-interactive)
 
 # Terragrunt init (safe for all actions)
-terragrunt run-all init \
+terragrunt init --all \
   --working-dir "$WORKDIR" \
   "${NON_INTERACTIVE_FLAGS[@]}"
 
 # Main command
-terragrunt run-all "$ACTION" \
+terragrunt "$ACTION" --all \
   --working-dir "$WORKDIR" \
   "${EXTRA_ARGS[@]}" \
   "${NON_INTERACTIVE_FLAGS[@]}"

@@ -37,3 +37,5 @@ crash.log
 Thumbs.db
 ehthumbs.db
 desktop.ini
+
+.venv
