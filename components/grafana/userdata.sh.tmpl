@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+GRAFANA_PORT="${GRAFANA_PORT}"
+CONNECT_PORT="${CONNECT_PORT}"
+CH_HTTP_URL="${CH_HTTP_URL}"
+CH_NAME="${CH_NAME}"
+
+MSK_BOOTSTRAP="${MSK_BOOTSTRAP}"
+CONNECT_GROUP_ID="${CONNECT_GROUP_ID}"
+MONGO_URI="${MONGO_URI}"
+CONNECTOR_NAME="${CONNECTOR_NAME}"
+CONNECTOR_JSON='${CONNECTOR_JSON}'
+
+dnf update -y
+dnf install -y jq curl tar unzip amazon-ssm-agent
+
+# ---- Grafana OSS ----
+cat >/etc/yum.repos.d/grafana.repo <<'EOF'
+[grafana]
+name=Grafana OSS
+baseurl=https://packages.grafana.com/oss/rpm
+repo_gpgcheck=1
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.grafana.com/gpg.key
+EOF
+dnf install -y grafana
+# Add ClickHouse datasource via provisioning
+mkdir -p /etc/grafana/provisioning/datasources
+cat >/etc/grafana/provisioning/datasources/clickhouse.yaml <<EOF
+apiVersion: 1
+datasources:
+  - name: ${CH_NAME}
+    type: grafana-clickhouse-datasource
+    access: proxy
+    url: ${CH_HTTP_URL}
+    isDefault: true
+EOF
+
+# Install Grafana ClickHouse plugin
+grafana-cli plugins install grafana-clickhouse-datasource || true
+sed -i "s/;http_port = .*/http_port = ${GRAFANA_PORT}/" /etc/grafana/grafana.ini
+systemctl enable --now grafana-server
+
+# ---- Kafka Connect (standalone distribution) ----
+KAFKA_VER="3.7.0"
+curl -L -o /tmp/kafka.tgz "https://archive.apache.org/dist/kafka/${KAFKA_VER}/kafka_2.13-${KAFKA_VER}.tgz"
+tar -xzf /tmp/kafka.tgz -C /opt
+ln -sf "/opt/kafka_2.13-${KAFKA_VER}" /opt/kafka
+
+# AWS MSK IAM auth JAR for client
+curl -L -o /opt/kafka/libs/aws-msk-iam-auth-1.1.8-all.jar \
+  "https://repo1.maven.org/maven2/software/amazon/msk/aws-msk-iam-auth/1.1.8/aws-msk-iam-auth-1.1.8-all.jar"
+
+# Debezium MongoDB connector
+DEB_VER="2.6.1.Final"
+mkdir -p /opt/kafka/connect-plugins
+curl -L -o /tmp/debezium-mongodb.zip "https://repo1.maven.org/maven2/io/debezium/debezium-connector-mongodb/${DEB_VER}/debezium-connector-mongodb-${DEB_VER}.zip"
+unzip -o /tmp/debezium-mongodb.zip -d /opt/kafka/connect-plugins
+
+# Connect worker config (distributed)
+cat >/etc/kafka-connect-distributed.properties <<EOF
+bootstrap.servers=${MSK_BOOTSTRAP}
+group.id=${CONNECT_GROUP_ID}
+key.converter=org.apache.kafka.connect.json.JsonConverter
+value.converter=org.apache.kafka.connect.json.JsonConverter
+plugin.path=/opt/kafka/connect-plugins
+rest.port=${CONNECT_PORT}
+# MSK IAM auth
+security.protocol=SASL_SSL
+sasl.mechanism=AWS_MSK_IAM
+sasl.jaas.config=software.amazon.msk.auth.iam.IAMLoginModule required;
+sasl.client.callback.handler.class=software.amazon.msk.auth.iam.IAMClientCallbackHandler
+EOF
+
+# systemd unit for Kafka Connect
+cat >/etc/systemd/system/kafka-connect.service <<'UNIT'
+[Unit]
+Description=Kafka Connect Distributed
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment="KAFKA_LOG4J_OPTS=-Dlog4j.configuration=file:/opt/kafka/config/log4j.properties"
+ExecStart=/opt/kafka/bin/connect-distributed.sh /etc/kafka-connect-distributed.properties
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now kafka-connect.service
+
+# Seed Mongo CDC connector if MONGO_URI provided
+if [ -n "${MONGO_URI}" ]; then
+  # Base connector JSON; merge extra fields from CONNECTOR_JSON
+  BASE=$(cat <<JSON
+{
+  "name": "${CONNECTOR_NAME}",
+  "config": {
+    "connector.class": "${mongo_connector_class:-io.debezium.connector.mongodb.MongoDbConnector}",
+    "mongodb.connection.string": "${MONGO_URI}",
+    "mongodb.members.auto.discover": "true",
+    "mongodb.poll.interval.ms": "1000",
+    "topic.prefix": "mongo",
+    "publish.full.document.only": "false"
+  }
+}
+JSON
+)
+  jq -s '.[0] * {config: (. [0].config * .[1])}' <(echo "$BASE") <(echo "${CONNECTOR_JSON}") \
+    | curl -sS -X POST -H "Content-Type: application/json" --data-binary @- "http://localhost:${CONNECT_PORT}/connectors" \
+    || true
+fi
