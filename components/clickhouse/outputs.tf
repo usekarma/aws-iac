@@ -1,16 +1,16 @@
 output "instance_id" {
   description = "EC2 instance ID"
-  value       = aws_instance.ch.id
+  value       = aws_instance.clickhouse.id
 }
 
 output "private_ip" {
   description = "Private IP of ClickHouse"
-  value       = aws_instance.ch.private_ip
+  value       = aws_instance.clickhouse.private_ip
 }
 
 output "security_group_id" {
   description = "ClickHouse security group ID"
-  value       = aws_security_group.ch.id
+  value       = aws_security_group.clickhouse.id
 }
 
 output "data_volume_id" {

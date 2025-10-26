@@ -1,10 +1,13 @@
 locals {
   # --- MSK Serverless + topic ---
   msk_enable               = try(local.config.msk_enable, true)
-  msk_cluster_name         = try(local.config.msk_cluster_name, "${var.nickname}-msk-srvless")
-  msk_topic_name           = try(local.config.msk_topic_name, "ch_ingest")
+  msk_cluster_name         = "${var.nickname}-msk-srvless"
+  msk_topic_name           = try(local.config.msk_topic_name, "clickhouse_ingest")
   msk_topic_partitions     = try(local.config.msk_topic_partitions, 3)
   msk_topic_retention_ms   = try(local.config.msk_topic_retention_ms, 604800000) # 7d
+  kafka_version            = try(local.config.kafka_version, "3.7.0")
+  debezium_mongodb_version = try(local.config.debezium_mongodb_version, "2.6.1.Final")
+  aws_msk_iam_auth_version = try(local.config.aws_msk_iam_auth_version, "1.1.8")
 }
 
 resource "aws_security_group" "msk" {
@@ -26,14 +29,14 @@ resource "aws_security_group" "msk" {
   tags = merge(local.tags, { Role = "msk-serverless", Name = "${var.nickname}-sg-msk-srvless" })
 }
 
-resource "aws_vpc_security_group_ingress_rule" "msk_from_ch_9098" {
+resource "aws_vpc_security_group_ingress_rule" "msk_from_clickhouse_9098" {
   count                        = local.msk_enable ? 1 : 0
   security_group_id            = aws_security_group.msk[0].id
-  referenced_security_group_id = aws_security_group.ch.id
+  referenced_security_group_id = aws_security_group.clickhouse.id
   ip_protocol                  = "tcp"
   from_port                    = 9098
   to_port                      = 9098
-  description                  = "ClickHouse -> MSK Serverless brokers (SASL/IAM)"
+  description                  = "CH-to-MSK-9098-SASL-IAM"
 }
 
 resource "aws_msk_serverless_cluster" "this" {
