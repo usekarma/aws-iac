@@ -209,26 +209,38 @@ resource "aws_instance" "clickhouse" {
   }
 
   user_data_base64 = base64encode(templatefile("${path.module}/userdata.sh.tmpl", {
-    EBS_DEVICE       = "/dev/xvdb"
-    MOUNT_POINT      = "/var/lib/clickhouse"
-    CH_HTTP_PORT     = local.clickhouse_http_port
-    CH_TCP_PORT      = local.clickhouse_tcp_port
-    CH_VERSION_TRACK = local.clickhouse_version
-
-    # MSK
-    MSK_BOOTSTRAP = coalesce(local.msk_bootstrap, "")
-    MSK_TOPIC     = local.msk_topic_name
-    MSK_PARTS     = local.msk_topic_partitions
-    MSK_RETMS     = local.msk_topic_retention_ms
-
-    KAFKA_VER            = local.kafka_version,
-    DEBEZIUM_MONGODB_VER = local.debezium_mongodb_version
-    AWS_MSK_IAM_AUTH_VER = local.aws_msk_iam_auth_version
-
-    # Backups
-    BACKUP_BUCKET = local.backup_bucket_name
-    BACKUP_PREFIX = local.backup_prefix
+    EBS_DEVICE    = "" # or "/dev/nvme1n1"
+    MOUNT_POINT   = "/var/lib/clickhouse"
+    MARKER_FILE   = "/var/local/BOOTSTRAP_OK"
+    CH_HTTP_PORT  = 8123
+    CH_TCP_PORT   = 9000
+    BACKUP_BUCKET = "usekarma.dev-prod" # << required
+    BACKUP_PREFIX = "clickhouse"        # << required
   }))
+
+  # user_data_base64 = base64encode(templatefile("${path.module}/userdata.sh.tmpl", {
+  #   # Leave blank to auto-detect largest non-root NVMe (Nitro-safe)
+  #   EBS_DEVICE   = "" # e.g., "/dev/nvme1n1" to pin explicitly
+  #   MOUNT_POINT  = "/var/lib/clickhouse"
+  #   MARKER_FILE  = "/var/local/BOOTSTRAP_OK"
+  #   CH_HTTP_PORT = local.clickhouse_http_port
+  #   CH_TCP_PORT  = local.clickhouse_tcp_port
+  #   CH_VERSION_TRACK = local.clickhouse_version
+
+  #   # MSK
+  #   MSK_BOOTSTRAP = coalesce(local.msk_bootstrap, "")
+  #   MSK_TOPIC     = local.msk_topic_name
+  #   MSK_PARTS     = local.msk_topic_partitions
+  #   MSK_RETMS     = local.msk_topic_retention_ms
+
+  #   KAFKA_VER            = local.kafka_version,
+  #   DEBEZIUM_MONGODB_VER = local.debezium_mongodb_version
+  #   AWS_MSK_IAM_AUTH_VER = local.aws_msk_iam_auth_version
+
+  # Backups
+  #   BACKUP_BUCKET = local.backup_bucket_name
+  #   BACKUP_PREFIX = local.backup_prefix
+  # }))
 
   tags = merge(local.tags, {
     Name     = "${var.nickname}-clickhouse"
