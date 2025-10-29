@@ -74,6 +74,8 @@ data "aws_subnet" "chosen" {
   id = local.subnet_id
 }
 
+data "aws_region" "current" {}
+
 resource "aws_iam_role" "this" {
   name               = "${var.nickname}-clickhouse-role"
   assume_role_policy = data.aws_iam_policy_document.assume.json
@@ -81,7 +83,7 @@ resource "aws_iam_role" "this" {
 }
 
 resource "aws_iam_role_policy_attachment" "ssm_core" {
-  role       = aws_iam_role.this.name
+  role       = aws_iam_role.this.id
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
@@ -110,13 +112,13 @@ resource "aws_iam_policy" "backup" {
 }
 
 resource "aws_iam_role_policy_attachment" "backup_attach" {
-  role       = aws_iam_role.this.name
+  role       = aws_iam_role.this.id
   policy_arn = aws_iam_policy.backup.arn
 }
 
 resource "aws_iam_instance_profile" "this" {
   name = "${var.nickname}-clickhouse-profile"
-  role = aws_iam_role.this.name
+  role = aws_iam_role.this.id
 }
 
 resource "aws_security_group" "clickhouse" {
@@ -198,7 +200,7 @@ resource "aws_instance" "clickhouse" {
   instance_type               = local.instance_type
   subnet_id                   = local.subnet_id
   associate_public_ip_address = false
-  iam_instance_profile        = aws_iam_instance_profile.this.name
+  iam_instance_profile        = aws_iam_instance_profile.this.id
   vpc_security_group_ids      = [aws_security_group.clickhouse.id, local.vpc_sg_id]
   key_name                    = local.key_name
 
@@ -208,39 +210,40 @@ resource "aws_instance" "clickhouse" {
     volume_size = 20
   }
 
+  metadata_options {
+    http_tokens                 = "required"   # enforce IMDSv2
+    http_endpoint               = "enabled"
+    http_put_response_hop_limit = 2
+  }
+
   user_data_base64 = base64encode(templatefile("${path.module}/userdata.sh.tmpl", {
-    EBS_DEVICE    = "" # or "/dev/nvme1n1"
-    MOUNT_POINT   = "/var/lib/clickhouse"
-    MARKER_FILE   = "/var/local/BOOTSTRAP_OK"
-    CH_HTTP_PORT  = 8123
-    CH_TCP_PORT   = 9000
-    BACKUP_BUCKET = "usekarma.dev-prod" # << required
-    BACKUP_PREFIX = "clickhouse"        # << required
+    # Leave blank to auto-detect largest non-root NVMe (Nitro-safe)
+    EBS_DEVICE   = "" # e.g., "/dev/nvme1n1" to pin explicitly
+    MOUNT_POINT  = "/var/lib/clickhouse"
+    MARKER_FILE  = "/var/local/BOOTSTRAP_OK"
+
+    # ClickHouse network/versions (aligns with locals)
+    CH_HTTP_PORT = local.clickhouse_http_port
+    CH_TCP_PORT  = local.clickhouse_tcp_port
+    CH_VERSION_TRACK = local.clickhouse_version
+
+    # MSK (aligns with msk-serverless.tf locals)
+    MSK_BOOTSTRAP = coalesce(local.msk_bootstrap, "")
+    MSK_TOPIC     = local.msk_topic_name
+    MSK_PARTS     = local.msk_topic_partitions
+    MSK_RETMS     = local.msk_topic_retention_ms
+
+    KAFKA_VER            = local.kafka_version,
+    DEBEZIUM_MONGODB_VER = local.debezium_mongodb_version
+    AWS_MSK_IAM_AUTH_VER = local.aws_msk_iam_auth_version
+
+    # Backups
+    BACKUP_BUCKET = local.backup_bucket_name
+    BACKUP_PREFIX = local.backup_prefix
+
+    # Region for CH + AWS CLI (used by systemd drop-in)
+    AWS_REGION = data.aws_region.current.id
   }))
-
-  # user_data_base64 = base64encode(templatefile("${path.module}/userdata.sh.tmpl", {
-  #   # Leave blank to auto-detect largest non-root NVMe (Nitro-safe)
-  #   EBS_DEVICE   = "" # e.g., "/dev/nvme1n1" to pin explicitly
-  #   MOUNT_POINT  = "/var/lib/clickhouse"
-  #   MARKER_FILE  = "/var/local/BOOTSTRAP_OK"
-  #   CH_HTTP_PORT = local.clickhouse_http_port
-  #   CH_TCP_PORT  = local.clickhouse_tcp_port
-  #   CH_VERSION_TRACK = local.clickhouse_version
-
-  #   # MSK
-  #   MSK_BOOTSTRAP = coalesce(local.msk_bootstrap, "")
-  #   MSK_TOPIC     = local.msk_topic_name
-  #   MSK_PARTS     = local.msk_topic_partitions
-  #   MSK_RETMS     = local.msk_topic_retention_ms
-
-  #   KAFKA_VER            = local.kafka_version,
-  #   DEBEZIUM_MONGODB_VER = local.debezium_mongodb_version
-  #   AWS_MSK_IAM_AUTH_VER = local.aws_msk_iam_auth_version
-
-  # Backups
-  #   BACKUP_BUCKET = local.backup_bucket_name
-  #   BACKUP_PREFIX = local.backup_prefix
-  # }))
 
   tags = merge(local.tags, {
     Name     = "${var.nickname}-clickhouse"

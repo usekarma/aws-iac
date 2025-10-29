@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 exec > >(tee -a /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
+echo "[userdata] start $(date -Is)"
 
 # ---------------- Inputs from Terraform ----------------
 EBS_DEV="${EBS_DEVICE}"                     # "" => auto-pick largest non-root NVMe
@@ -10,6 +11,7 @@ CH_HTTP="${CH_HTTP_PORT}"                   # e.g., 8123
 CH_TCP="${CH_TCP_PORT}"                     # e.g., 9000
 BACKUP_BUCKET="${BACKUP_BUCKET}"            # e.g., "usekarma.dev-prod"
 BACKUP_PREFIX="${BACKUP_PREFIX}"            # e.g., "clickhouse"
+AWS_REGION="${AWS_REGION}"                  # e.g., "us-east-1"
 
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done
@@ -27,7 +29,7 @@ else
   exit 1
 fi
 
-# ---------------- Install & start SSM (unchanged) -------
+# ---------------- Install & start SSM -------------------
 if [[ "$PM" == "apt" ]]; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
@@ -39,14 +41,14 @@ fi
 systemctl enable --now amazon-ssm-agent
 systemctl is-active --quiet amazon-ssm-agent
 
-# ---------------- Core tools (avoid AL2023 conflicts) ---
+# ---------------- Core tools ----------------------------
 if [[ "$PM" == "apt" ]]; then
-  apt-get install -y ca-certificates jq rsync xfsprogs xz-utils curl awscli
+  apt-get install -y ca-certificates jq rsync xfsprogs xz-utils curl awscli zstd
 else
-  $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli --skip-broken || true
+  $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd --skip-broken || true
 fi
 
-# ---------------- Optional: pick & mount data disk ------
+# ---------------- Optional: pick & mount data disk -------
 if [[ -n "$MNT" ]]; then
   mkdir -p "$MNT"
 
@@ -55,8 +57,8 @@ if [[ -n "$MNT" ]]; then
     local rootpk
     rootpk="$(lsblk -no pkname "$(findmnt -no SOURCE /)" 2>/dev/null | head -n1)"
     lsblk -dn -o NAME,TYPE,SIZE \
-      | awk '$2=="disk"{print $1" "$3}' \
-      | sort -k2 -hr | awk '{print $1}' \
+    | awk '$2=="disk"{print $1" "$3}' \
+    | sort -k2 -hr | awk '{print $1}' \
       | while read -r n; do
           [[ "$n" == "$rootpk" ]] && continue
           [[ -b "/dev/$n" ]] && { echo "/dev/$n"; break; }
@@ -86,7 +88,7 @@ if [[ -n "$MNT" ]]; then
   fi
 fi
 
-# ---------------- Install ClickHouse (fixed repo) -------
+# ---------------- Install ClickHouse --------------------
 if [[ "$PM" == "apt" ]]; then
   install -m 0755 -d /usr/share/keyrings
   curl -fsSL https://packages.clickhouse.com/apt/doc/apt-key.gpg \
@@ -102,7 +104,7 @@ else
   $PM -y install clickhouse-server clickhouse-client
 fi
 
-# ---------------- Configure data path & ports ----------
+# ---------------- Configure data path & ports -----------
 systemctl stop clickhouse-server || true
 
 TARGET_PATH="/var/lib/clickhouse"
@@ -116,27 +118,73 @@ rsync -a /var/lib/clickhouse/ "$TARGET_PATH"/ || true
 chown -R clickhouse:clickhouse "$TARGET_PATH"
 
 mkdir -p /etc/clickhouse-server/config.d
-# Use unquoted heredocs so bash expands; $${...} prevents Terraform from eating it
+
+# Use unquoted heredocs so bash expands at runtime; $${...} prevents Terraform pre-expansion
 cat >/etc/clickhouse-server/config.d/10-data-path.xml <<EOF
-<yandex>
+<clickhouse>
   <path>$${TARGET_PATH}/</path>
-</yandex>
+  <tmp_path>$${TARGET_PATH}/tmp/</tmp_path>
+</clickhouse>
 EOF
 
 cat >/etc/clickhouse-server/config.d/20-network.xml <<EOF
-<yandex>
+<clickhouse>
   <listen_host>0.0.0.0</listen_host>
   <http_port>$${CH_HTTP}</http_port>
   <tcp_port>$${CH_TCP}</tcp_port>
-</yandex>
+</clickhouse>
 EOF
 
-# ---------------- Enable/start ClickHouse --------------
-# Avoid SysV confusion on AL2023
-mv /etc/init.d/clickhouse-server /etc/init.d/clickhouse-server.rpmorig 2>/dev/null || true
-mv /etc/rc.d/init.d/clickhouse-server /etc/rc.d/init.d/clickhouse-server.rpmorig 2>/dev/null || true
+# ---------------- Systemd region env (optional) ---------
+mkdir -p /etc/systemd/system/clickhouse-server.service.d
+cat >/etc/systemd/system/clickhouse-server.service.d/aws-env.conf <<EOF
+[Service]
+Environment=AWS_REGION=${AWS_REGION}
+Environment=AWS_DEFAULT_REGION=${AWS_REGION}
+EOF
 
-# If vendor unit lacks [Install], add one
+# ---------------- Conditionally add S3 disk -------------
+# Require ALL of: region, bucket, prefix
+if [[ -n "${AWS_REGION}" && -n "${BACKUP_BUCKET}" && -n "${BACKUP_PREFIX}" ]]; then
+  mkdir -p /var/lib/clickhouse/disks/s3_backups
+  chown -R clickhouse:clickhouse /var/lib/clickhouse/disks
+
+  # NOTE: $${...} so Terraform doesn't interpolate; bash will expand at runtime.
+  cat >/etc/clickhouse-server/config.d/30-s3-backup.xml <<EOF
+<clickhouse>
+  <storage_configuration>
+    <disks>
+      <s3_backups>
+        <!-- For BACKUP/RESTORE use s3_plain per docs -->
+        <type>s3_plain</type>
+        <!-- Bucket + prefix MUST be part of endpoint; trailing slash required -->
+        <endpoint>https://$${BACKUP_BUCKET}.s3.$${AWS_REGION}.amazonaws.com/$${BACKUP_PREFIX}/</endpoint>
+        <!-- Let CH fetch credentials from env & EC2/ECS metadata -->
+        <use_environment_credentials>true</use_environment_credentials>
+        <region>$${AWS_REGION}</region>
+        <metadata_path>/var/lib/clickhouse/disks/s3_backups/</metadata_path>
+      </s3_backups>
+    </disks>
+  </storage_configuration>
+
+  <!-- Allow this disk to be used by BACKUP/RESTORE -->
+  <backups>
+    <allowed_disk>s3_backups</allowed_disk>
+  </backups>
+</clickhouse>
+EOF
+  chmod 0644 /etc/clickhouse-server/config.d/30-s3-backup.xml
+else
+  echo "[userdata] Skipping S3 disk: require AWS_REGION, BACKUP_BUCKET, BACKUP_PREFIX"
+fi
+
+# ---------------- Validate config & start ---------------
+
+# Ensure data & log dirs exist with correct ownership
+sudo mkdir -p /var/lib/clickhouse /var/log/clickhouse-server
+sudo chown -R clickhouse:clickhouse /var/lib/clickhouse /var/log/clickhouse-server
+
+# Some builds don’t ship a fully “installable” unit; ensure it has [Install]
 if ! systemctl cat clickhouse-server | grep -q '^\[Install\]'; then
   cp -f /usr/lib/systemd/system/clickhouse-server.service /etc/systemd/system/clickhouse-server.service
   cat >>/etc/systemd/system/clickhouse-server.service <<'EOF'
@@ -144,42 +192,63 @@ if ! systemctl cat clickhouse-server | grep -q '^\[Install\]'; then
 [Install]
 WantedBy=multi-user.target
 EOF
+else
+  # Keep a copy under /etc/ so we can safely edit in future
+  cp -f /usr/lib/systemd/system/clickhouse-server.service /etc/systemd/system/clickhouse-server.service || true
 fi
 
 systemctl daemon-reload
-if ! systemctl enable --now clickhouse-server; then
-  mkdir -p /etc/systemd/system/multi-user.target.wants
-  ln -sf /usr/lib/systemd/system/clickhouse-server.service \
-         /etc/systemd/system/multi-user.target.wants/clickhouse-server.service
-  systemctl start clickhouse-server
+
+# Try the normal path first
+if ! systemctl enable --now clickhouse-server 2>/tmp/ch-enable.err; then
+  if grep -q 'systemd-sysv-install' /tmp/ch-enable.err; then
+    # Fallback for images without SysV helper: manually create enable symlink
+    mkdir -p /etc/systemd/system/multi-user.target.wants
+    ln -sf /etc/systemd/system/clickhouse-server.service \
+           /etc/systemd/system/multi-user.target.wants/clickhouse-server.service
+    systemctl start clickhouse-server
+  else
+    echo "[userdata] systemctl enable failed:"
+    cat /tmp/ch-enable.err
+  fi
 fi
-systemctl is-active --quiet clickhouse-server || (journalctl -u clickhouse-server -n 200 --no-pager || true)
+rm -f /tmp/ch-enable.err || true
+
+# Final sanity checks
+if ! systemctl is-active --quiet clickhouse-server; then
+  echo "[userdata] ERROR: clickhouse-server not active"
+  journalctl -u clickhouse-server -n 200 --no-pager || true
+  exit 1
+fi
+
+# Ports & quick query
+ss -lntp | egrep '(:8123|:9000|:9009)' || true
+clickhouse-client -q "SELECT version(), now()"
 
 # ---------------- Backup script + timer -----------------
-# Script uses the resolved TARGET_PATH and uploads to s3://$BACKUP_BUCKET/$BACKUP_PREFIX/
 install -m 0755 -d /usr/local/bin
-cat >/usr/local/bin/clickhouse-backup.sh <<EOF
+cat >/usr/local/bin/clickhouse-backup.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-BACKUP_BUCKET="${BACKUP_BUCKET}"
-BACKUP_PREFIX="${BACKUP_PREFIX}"
-SRC_PATH="$${TARGET_PATH}"
-TS="\$(date -u +%Y%m%dT%H%M%SZ)"
-ARCH="/tmp/clickhouse-\$${TS}.tar.zst"
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
 
-# Minimal quiesce: sync pages; for stronger guarantees use EBS snapshots or CH backup
-sync
-tar -I 'zstd -19' -cf "\$ARCH" -C "\$SRC_PATH" .
-aws s3 cp "\$ARCH" "s3://\${BACKUP_BUCKET}/\${BACKUP_PREFIX}/"
-rm -f "\$ARCH"
-echo "Uploaded s3://\${BACKUP_BUCKET}/\${BACKUP_PREFIX}/\$(basename "\$ARCH")"
+# Use S3 disk if present; path is a subdir under the endpoint prefix
+if [[ "$(clickhouse-client -q "SELECT count() FROM system.disks WHERE name='s3_backups'")" -eq 1 ]]; then
+  clickhouse-client --multiquery -q "
+    BACKUP DATABASE default TO Disk('s3_backups', 'auto-$${TS}/');
+  "
+  echo "Created ClickHouse BACKUP to Disk('s3_backups', 'auto-$${TS}/')"
+else
+  echo "s3_backups disk not configured; skipping (set AWS_REGION/BACKUP_BUCKET/BACKUP_PREFIX)"
+  exit 0
+fi
 EOF
 chmod +x /usr/local/bin/clickhouse-backup.sh
 
 cat >/etc/systemd/system/clickhouse-backup.service <<'EOF'
 [Unit]
-Description=ClickHouse Backup to S3
+Description=ClickHouse BACKUP DATABASE default -> S3 disk
 After=network-online.target clickhouse-server.service
 Wants=network-online.target
 
@@ -197,6 +266,7 @@ Description=Run ClickHouse Backup Daily
 
 [Timer]
 OnCalendar=daily
+RandomizedDelaySec=10m
 Persistent=true
 
 [Install]
@@ -209,3 +279,4 @@ systemctl list-timers --all | grep clickhouse-backup || true
 
 # ---------------- Marker -------------------------------
 echo "$(date -u +%FT%TZ) BOOTSTRAP_OK" > "$MARKER_FILE"
+echo "[userdata] done $(date -Is)"
