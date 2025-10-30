@@ -7,8 +7,8 @@ echo "[userdata] start $(date -Is)"
 EBS_DEV="${EBS_DEVICE}"                     # "" => auto-pick largest non-root NVMe
 MNT="${MOUNT_POINT}"                        # e.g., "/var/lib/clickhouse"
 MARKER_FILE="${MARKER_FILE}"                # e.g., "/var/local/BOOTSTRAP_OK"
-CH_HTTP="${CH_HTTP_PORT}"                   # e.g., 8123
-CH_TCP="${CH_TCP_PORT}"                     # e.g., 9000
+CLICKHOUSE_HTTP="${CLICKHOUSE_HTTP_PORT}"   # e.g., 8123
+CLICKHOUSE_TCP="${CLICKHOUSE_TCP_PORT}"     # e.g., 9000
 BACKUP_BUCKET="${BACKUP_BUCKET}"            # e.g., "usekarma.dev-prod"
 BACKUP_PREFIX="${BACKUP_PREFIX}"            # e.g., "clickhouse"
 AWS_REGION="${AWS_REGION}"                  # e.g., "us-east-1"
@@ -130,8 +130,8 @@ EOF
 cat >/etc/clickhouse-server/config.d/20-network.xml <<EOF
 <clickhouse>
   <listen_host>0.0.0.0</listen_host>
-  <http_port>$${CH_HTTP}</http_port>
-  <tcp_port>$${CH_TCP}</tcp_port>
+  <http_port>$${CLICKHOUSE_HTTP}</http_port>
+  <tcp_port>$${CLICKHOUSE_TCP}</tcp_port>
 </clickhouse>
 EOF
 
@@ -159,7 +159,7 @@ if [[ -n "${AWS_REGION}" && -n "${BACKUP_BUCKET}" && -n "${BACKUP_PREFIX}" ]]; t
         <type>s3_plain</type>
         <!-- Bucket + prefix MUST be part of endpoint; trailing slash required -->
         <endpoint>https://$${BACKUP_BUCKET}.s3.$${AWS_REGION}.amazonaws.com/$${BACKUP_PREFIX}/</endpoint>
-        <!-- Let CH fetch credentials from env & EC2/ECS metadata -->
+        <!-- Let ClickHouse fetch credentials from env & EC2/ECS metadata -->
         <use_environment_credentials>true</use_environment_credentials>
         <region>$${AWS_REGION}</region>
         <metadata_path>/var/lib/clickhouse/disks/s3_backups/</metadata_path>

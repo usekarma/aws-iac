@@ -211,37 +211,33 @@ resource "aws_instance" "clickhouse" {
   }
 
   metadata_options {
-    http_tokens                 = "required"   # enforce IMDSv2
+    http_tokens                 = "required" # enforce IMDSv2
     http_endpoint               = "enabled"
     http_put_response_hop_limit = 2
   }
 
   user_data_base64 = base64encode(templatefile("${path.module}/userdata.sh.tmpl", {
     # Leave blank to auto-detect largest non-root NVMe (Nitro-safe)
-    EBS_DEVICE   = "" # e.g., "/dev/nvme1n1" to pin explicitly
-    MOUNT_POINT  = "/var/lib/clickhouse"
-    MARKER_FILE  = "/var/local/BOOTSTRAP_OK"
+    EBS_DEVICE  = "" # e.g., "/dev/nvme1n1" to pin explicitly
+    MOUNT_POINT = "/var/lib/clickhouse"
+    MARKER_FILE = "/var/local/BOOTSTRAP_OK"
 
     # ClickHouse network/versions (aligns with locals)
-    CH_HTTP_PORT = local.clickhouse_http_port
-    CH_TCP_PORT  = local.clickhouse_tcp_port
-    CH_VERSION_TRACK = local.clickhouse_version
-
-    # MSK (aligns with msk-serverless.tf locals)
-    MSK_BOOTSTRAP = coalesce(local.msk_bootstrap, "")
-    MSK_TOPIC     = local.msk_topic_name
-    MSK_PARTS     = local.msk_topic_partitions
-    MSK_RETMS     = local.msk_topic_retention_ms
-
-    KAFKA_VER            = local.kafka_version,
-    DEBEZIUM_MONGODB_VER = local.debezium_mongodb_version
-    AWS_MSK_IAM_AUTH_VER = local.aws_msk_iam_auth_version
+    CLICKHOUSE_HTTP_PORT     = local.clickhouse_http_port
+    CLICKHOUSE_TCP_PORT      = local.clickhouse_tcp_port
+    CLICKHOUSE_VERSION_TRACK = local.clickhouse_version
 
     # Backups
     BACKUP_BUCKET = local.backup_bucket_name
     BACKUP_PREFIX = local.backup_prefix
 
-    # Region for CH + AWS CLI (used by systemd drop-in)
+    # New Redpanda vars
+    REDPANDA_BROKERS    = format("%s:%d", aws_instance.redpanda[0].private_ip, local.redpanda_port)
+    REDPANDA_TOPIC      = local.redpanda_topic
+    REDPANDA_PARTITIONS = local.redpanda_partitions
+    REDPANDA_RETMS      = local.redpanda_retention
+
+    # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id
   }))
 
@@ -273,13 +269,19 @@ resource "aws_ssm_parameter" "runtime" {
     vpc_id             = local.vpc_id,
     subnet_id          = local.subnet_id,
 
-    # MSK
-    msk_enabled            = local.msk_enable,
-    msk_cluster_arn        = local.msk_arn,
-    msk_bootstrap_sasl_iam = local.msk_bootstrap,
-    msk_topic              = local.msk_topic_name,
-    msk_topic_partitions   = local.msk_topic_partitions,
-    msk_topic_retention_ms = local.msk_topic_retention_ms
+    # Red Panda Kafka
+    redpanda_instance_id       = aws_instance.redpanda[0].id,
+    redpanda_private_ip        = aws_instance.redpanda[0].private_ip,
+    redpanda_security_group_id = aws_security_group.redpanda[0].id,
+    redpanda_brokers           = "${aws_instance.redpanda[0].private_ip}:${local.redpanda_port}"
+
+    # MongoDB
+    mongo_instance_id       = aws_instance.mongo[0].id,
+    mongo_private_ip        = aws_instance.mongo[0].private_ip,
+    mongo_port              = local.mongo_port,
+    mongo_replset           = "rs0",
+    mongo_rs_uri            = "mongodb://${aws_instance.mongo[0].private_ip}:${local.mongo_port}/?replicaSet=rs0",
+    mongo_security_group_id = aws_security_group.mongo[0].id
   })
   overwrite = true
   tier      = "Standard"
