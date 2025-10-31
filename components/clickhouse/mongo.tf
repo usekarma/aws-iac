@@ -90,26 +90,15 @@ resource "aws_instance" "mongo" {
     http_endpoint = "enabled"
   }
 
-  user_data_base64 = base64encode(templatefile("${path.module}/userdata.sh.tmpl", {
+  user_data_base64 = base64encode(templatefile("${path.module}/mongo-userdata.sh.tmpl", {
     # Leave blank to auto-detect largest non-root NVMe (Nitro-safe)
     EBS_DEVICE  = "" # e.g., "/dev/nvme1n1" to pin explicitly
-    MOUNT_POINT = "/var/lib/clickhouse"
+    MOUNT_POINT = "/var/lib/mongo"
     MARKER_FILE = "/var/local/BOOTSTRAP_OK"
-
-    # ClickHouse network/versions (aligns with locals)
-    CLICKHOUSE_HTTP_PORT     = local.clickhouse_http_port
-    CLICKHOUSE_TCP_PORT      = local.clickhouse_tcp_port
-    CLICKHOUSE_VERSION_TRACK = local.clickhouse_version
 
     # Backups
     BACKUP_BUCKET = local.backup_bucket_name
     BACKUP_PREFIX = local.backup_prefix
-
-    # New Redpanda vars
-    REDPANDA_BROKERS    = format("%s:%d", aws_instance.redpanda[0].private_ip, local.redpanda_port)
-    REDPANDA_TOPIC      = local.redpanda_topic
-    REDPANDA_PARTITIONS = local.redpanda_partitions
-    REDPANDA_RETMS      = local.redpanda_retention
 
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id

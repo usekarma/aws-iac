@@ -13,6 +13,9 @@ BACKUP_BUCKET="${BACKUP_BUCKET}"            # e.g., "usekarma.dev-prod"
 BACKUP_PREFIX="${BACKUP_PREFIX}"            # e.g., "clickhouse"
 AWS_REGION="${AWS_REGION}"                  # e.g., "us-east-1"
 
+PROMETHEUS_VER="${AWS_REGION}"
+NODEEXP_VER="${AWS_REGION}"
+
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done
 
@@ -276,6 +279,156 @@ EOF
 systemctl daemon-reload
 systemctl enable --now clickhouse-backup.timer
 systemctl list-timers --all | grep clickhouse-backup || true
+
+# ================= Prometheus + Grafana + Exporters (PM-style) =================
+
+# ---- Install prerequisites via PM ----
+if [[ "$PM" == "apt" ]]; then
+  apt-get update -y
+  apt-get install -y curl tar gzip jq || true
+else
+  $PM -y makecache || true
+  $PM -y install curl tar gzip jq || true
+fi
+
+# ---- Prometheus (binary install; same on both) ----
+cd /opt
+if [[ ! -d "/opt/prometheus-${PROMETHEUS_VER}.linux-amd64" ]]; then
+  curl -fL -o /opt/prometheus.tgz \
+    "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VER}/prometheus-${PROMETHEUS_VER}.linux-amd64.tar.gz"
+  tar xzf /opt/prometheus.tgz
+  rm -f /opt/prometheus.tgz
+fi
+ln -sf "/opt/prometheus-${PROMETHEUS_VER}.linux-amd64" /opt/prometheus
+
+# System user
+if ! id -u prometheus >/dev/null 2>&1; then
+  if [[ "$PM" == "apt" ]]; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin prometheus || true
+  else
+    useradd --system --no-create-home --shell /sbin/nologin prometheus || true
+  fi
+fi
+
+install -d -o prometheus -g prometheus /var/lib/prometheus /etc/prometheus
+
+cat >/etc/prometheus/prometheus.yml <<'YAML'
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs: [{ targets: ['127.0.0.1:9090'] }]
+  - job_name: 'node'
+    static_configs: [{ targets: ['127.0.0.1:9100'] }]
+  - job_name: 'clickhouse'
+    metrics_path: /metrics
+    static_configs: [{ targets: ['127.0.0.1:9363'] }]
+  # - job_name: 'grafana'              # optional
+  #   metrics_path: /metrics
+  #   static_configs: [{ targets: ['127.0.0.1:3000'] }]
+YAML
+
+cat >/etc/systemd/system/prometheus.service <<'EOF'
+[Unit]
+Description=Prometheus
+After=network-online.target
+Wants=network-online.target
+[Service]
+User=prometheus
+Group=prometheus
+ExecStart=/opt/prometheus/prometheus \
+  --config.file=/etc/prometheus/prometheus.yml \
+  --storage.tsdb.path=/var/lib/prometheus \
+  --web.listen-address=0.0.0.0:9090
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+EOF
+
+chown -R prometheus:prometheus /etc/prometheus /var/lib/prometheus
+systemctl daemon-reload
+systemctl enable --now prometheus
+
+# ---- Grafana (PM-specific repo install) ----
+if [[ "$PM" == "apt" ]]; then
+  # Grafana OSS apt repo
+  install -m 0755 -d /usr/share/keyrings
+  curl -fsSL https://packages.grafana.com/gpg.key | gpg --dearmor -o /usr/share/keyrings/grafana.gpg
+  echo "deb [signed-by=/usr/share/keyrings/grafana.gpg] https://packages.grafana.com/oss/deb stable main" \
+    > /etc/apt/sources.list.d/grafana.list
+  apt-get update -y
+  apt-get install -y grafana
+else
+  # Grafana OSS rpm repo
+  if [[ ! -f /etc/yum.repos.d/grafana.repo ]]; then
+    cat >/etc/yum.repos.d/grafana.repo <<'REPO'
+[grafana]
+name=Grafana OSS
+baseurl=https://packages.grafana.com/oss/rpm
+repo_gpgcheck=1
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.grafana.com/gpg.key
+REPO
+  fi
+  $PM -y makecache || true
+  $PM -y install grafana
+fi
+systemctl enable --now grafana-server
+
+# ---- Node Exporter (binary install; same on both; bind to loopback) ----
+cd /opt
+if [[ ! -d "/opt/node_exporter-${NODEEXP_VER}.linux-amd64" ]]; then
+  curl -fL -o /opt/node_exporter.tgz \
+    "https://github.com/prometheus/node_exporter/releases/download/v${NODEEXP_VER}/node_exporter-${NODEEXP_VER}.linux-amd64.tar.gz"
+  tar xzf /opt/node_exporter.tgz
+  rm -f /opt/node_exporter.tgz
+fi
+ln -sf "/opt/node_exporter-${NODEEXP_VER}.linux-amd64" /opt/node_exporter
+
+if ! id -u nodeexp >/dev/null 2>&1; then
+  if [[ "$PM" == "apt" ]]; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin nodeexp || true
+  else
+    useradd --system --no-create-home --shell /sbin/nologin nodeexp || true
+  fi
+fi
+
+cat >/etc/systemd/system/node_exporter.service <<'EOF'
+[Unit]
+Description=Prometheus Node Exporter
+After=network-online.target
+Wants=network-online.target
+[Service]
+User=nodeexp
+Group=nodeexp
+ExecStart=/opt/node_exporter/node_exporter --web.listen-address=127.0.0.1:9100
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now node_exporter
+
+# ---- ClickHouse native Prometheus endpoint on 9363 ----
+cat >/etc/clickhouse-server/config.d/40-prometheus.xml <<'EOF'
+<clickhouse>
+  <prometheus>
+    <endpoint>/metrics</endpoint>
+    <port>9363</port>
+    <metrics>true</metrics>
+    <events>true</events>
+    <asynchronous_metrics>true</asynchronous_metrics>
+  </prometheus>
+</clickhouse>
+EOF
+
+systemctl restart clickhouse-server || true
+
+# ---- Quick logs / ports ----
+ss -lntp | egrep '(:9090|:3000|:9100|:9363)' || true
+echo "[userdata:obs] Prometheus=9090 Grafana=3000 NodeExp=9100 CH-metrics=9363 configured"
 
 # ---------------- Marker -------------------------------
 echo "$(date -u +%FT%TZ) BOOTSTRAP_OK" > "$MARKER_FILE"

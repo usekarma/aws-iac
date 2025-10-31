@@ -237,6 +237,9 @@ resource "aws_instance" "clickhouse" {
     REDPANDA_PARTITIONS = local.redpanda_partitions
     REDPANDA_RETMS      = local.redpanda_retention
 
+    PROMETHEUS_VER = local.prometheus_ver
+    NODEEXP_VER    = local.nodeexp_ver
+
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id
   }))

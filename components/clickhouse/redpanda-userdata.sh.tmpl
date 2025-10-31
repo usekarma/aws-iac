@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+exec > >(tee -a /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
+echo "[userdata] start $(date -Is)"
+
+# ---------------- Inputs from Terraform ----------------
+EBS_DEV="${EBS_DEVICE}"                     # "" => auto-pick largest non-root NVMe
+MNT="${MOUNT_POINT}"                        # e.g., "/var/lib/redpanda"
+MARKER_FILE="${MARKER_FILE}"                # e.g., "/var/local/BOOTSTRAP_OK"
+BACKUP_BUCKET="${BACKUP_BUCKET}"            # e.g., "usekarma.dev-prod"
+BACKUP_PREFIX="${BACKUP_PREFIX}"            # e.g., "redpanda"
+AWS_REGION="${AWS_REGION}"                  # e.g., "us-east-1"
+
+# ---------------- Wait for basic network ----------------
+for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done
+
+# ---------------- Detect package manager / distro -------
+PM=""
+if command -v dnf >/dev/null 2>&1; then
+  PM="dnf" ; DISTRO="al2023"
+elif command -v yum >/dev/null 2>&1; then
+  PM="yum" ; DISTRO="al2"
+elif command -v apt-get >/dev/null 2>&1; then
+  PM="apt" ; DISTRO="ubuntu"
+else
+  echo "ERROR: No supported package manager found (dnf/yum/apt)" >&2
+  exit 1
+fi
+
+# ---------------- Install & start SSM -------------------
+if [[ "$PM" == "apt" ]]; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y amazon-ssm-agent || true
+else
+  $PM -y update || true
+  $PM -y install amazon-ssm-agent || true
+fi
+systemctl enable --now amazon-ssm-agent
+systemctl is-active --quiet amazon-ssm-agent
+
+# ---------------- Core tools ----------------------------
+if [[ "$PM" == "apt" ]]; then
+  apt-get install -y ca-certificates jq rsync xfsprogs xz-utils curl awscli zstd gnupg
+else
+  $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd --skip-broken || true
+fi
+
+# ---------------- Optional: pick & mount data disk -------
+if [[ -n "$MNT" ]]; then
+  mkdir -p "$MNT"
+
+  pick_data_dev() {
+    if [[ -n "$EBS_DEV" && -b "$EBS_DEV" ]]; then echo "$EBS_DEV"; return 0; fi
+    local rootpk
+    rootpk="$(lsblk -no pkname "$(findmnt -no SOURCE /)" 2>/dev/null | head -n1)"
+    lsblk -dn -o NAME,TYPE,SIZE \
+    | awk '$2=="disk"{print $1" "$3}' \
+    | sort -k2 -hr | awk '{print $1}' \
+      | while read -r n; do
+          [[ "$n" == "$rootpk" ]] && continue
+          [[ -b "/dev/$n" ]] && { echo "/dev/$n"; break; }
+        done
+  }
+
+  DATA_DEV=""
+  for _ in {1..60}; do
+    DATA_DEV="$(pick_data_dev || true)"
+    [[ -n "$DATA_DEV" && -b "$DATA_DEV" ]] && break
+    sleep 2
+  done
+
+  if [[ -n "$DATA_DEV" ]]; then
+    if ! blkid "$DATA_DEV" >/dev/null 2>&1; then
+      if [[ "$PM" == "apt" ]]; then apt-get install -y xfsprogs; else $PM -y install xfsprogs || true; fi
+      mkfs.xfs -f "$DATA_DEV"
+    fi
+    UUID="$(blkid -s UUID -o value "$DATA_DEV")"
+    # Remove stale lines for this mountpoint or legacy /dev/xvdb
+    sed -i "\|[[:space:]]$MNT[[:space:]]|d;/^\/dev\/xvdb[[:space:]]/d" /etc/fstab
+    grep -q "$UUID" /etc/fstab || echo "UUID=$UUID  $MNT  xfs  defaults,nofail  0  2" >> /etc/fstab
+    mount -a
+    mountpoint -q "$MNT"
+  else
+    echo "WARN: No data disk found; Redpanda will use default /var/lib/redpanda" >&2
+  fi
+fi
+
+# ---------------- Install Redpanda --------------------
+# Add official repos and install redpanda + rpk
+if [[ "$PM" == "apt" ]]; then
+  # Redpanda deb repo bootstrap
+  curl -1sLf 'https://dl.redpanda.com/nzc4ZYQK3WRGd9sy/redpanda/cfg/setup/bash.deb.sh' | bash
+  apt-get update -y
+  apt-get install -y redpanda redpanda-rpk
+else
+  # Redpanda rpm repo bootstrap (works for AL2023/AL2)
+  curl -1sLf 'https://dl.redpanda.com/nzc4ZYQK3WRGd9sy/redpanda/cfg/setup/bash.rpm.sh' | bash
+  $PM -y install redpanda redpanda-rpk
+fi
+
+# Ensure expected data dir layout
+# Redpanda default: /var/lib/redpanda/data
+mkdir -p /var/lib/redpanda
+if [[ -n "$MNT" && "$MNT" != "/var/lib/redpanda" && -d "$MNT" ]]; then
+  # If MNT provided and different, move data there via symlink for simplicity
+  rsync -aHAX --delete /var/lib/redpanda/ "$MNT"/ || true
+  rm -rf /var/lib/redpanda
+  ln -s "$MNT" /var/lib/redpanda
+fi
+mkdir -p /var/lib/redpanda/data
+chown -R redpanda:redpanda /var/lib/redpanda || true
+
+# Single-node/dev-friendly toggle to avoid strict resource checks
+# (safe for PoC; remove for production)
+if [[ -f /etc/redpanda/redpanda.yaml ]]; then
+  # set developer_mode true (idempotent)
+  sed -i 's/^\(\s*\)#\?\s*developer_mode:.*$/\1developer_mode: true/' /etc/redpanda/redpanda.yaml || true
+fi
+
+# Enable & start redpanda
+systemctl enable --now redpanda
+systemctl is-active --quiet redpanda
+
+# Basic smoke test (non-fatal)
+rpk version || true
+rpk cluster info || true
+rpk topic create init-check || true
+echo "ok" | rpk topic produce init-check || true
+rpk topic consume init-check -n 1 || true
+
+# ---------------- Marker -------------------------------
+echo "$(date -u +%FT%TZ) BOOTSTRAP_OK" > "$MARKER_FILE"
+echo "[userdata] done $(date -Is)"
