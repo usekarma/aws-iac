@@ -13,8 +13,9 @@ BACKUP_BUCKET="${BACKUP_BUCKET}"            # e.g., "usekarma.dev-prod"
 BACKUP_PREFIX="${BACKUP_PREFIX}"            # e.g., "clickhouse"
 AWS_REGION="${AWS_REGION}"                  # e.g., "us-east-1"
 
-PROMETHEUS_VER="${AWS_REGION}"
-NODEEXP_VER="${AWS_REGION}"
+# --- Fixed: set real versions, not region ---
+PROMETHEUS_VER="${PROMETHEUS_VER:-2.53.1}"
+NODEEXP_VER="${NODEEXP_VER:-1.8.2}"
 
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done
@@ -46,9 +47,9 @@ systemctl is-active --quiet amazon-ssm-agent
 
 # ---------------- Core tools ----------------------------
 if [[ "$PM" == "apt" ]]; then
-  apt-get install -y ca-certificates jq rsync xfsprogs xz-utils curl awscli zstd
+  apt-get install -y ca-certificates jq rsync xfsprogs xz-utils curl awscli zstd gpg
 else
-  $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd --skip-broken || true
+  $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd gzip tar --skip-broken || true
 fi
 
 # ---------------- Optional: pick & mount data disk -------
@@ -101,7 +102,6 @@ if [[ "$PM" == "apt" ]]; then
   apt-get update -y
   apt-get install -y clickhouse-server clickhouse-client
 else
-  # Official repo file contains correct baseurl & gpgkey
   dnf config-manager --add-repo https://packages.clickhouse.com/rpm/clickhouse.repo || true
   $PM -y makecache || true
   $PM -y install clickhouse-server clickhouse-client
@@ -182,12 +182,11 @@ else
 fi
 
 # ---------------- Validate config & start ---------------
-
 # Ensure data & log dirs exist with correct ownership
-sudo mkdir -p /var/lib/clickhouse /var/log/clickhouse-server
-sudo chown -R clickhouse:clickhouse /var/lib/clickhouse /var/log/clickhouse-server
+mkdir -p /var/lib/clickhouse /var/log/clickhouse-server
+chown -R clickhouse:clickhouse /var/lib/clickhouse /var/log/clickhouse-server
 
-# Some builds don’t ship a fully “installable” unit; ensure it has [Install]
+# Ensure service has [Install]
 if ! systemctl cat clickhouse-server | grep -q '^\[Install\]'; then
   cp -f /usr/lib/systemd/system/clickhouse-server.service /etc/systemd/system/clickhouse-server.service
   cat >>/etc/systemd/system/clickhouse-server.service <<'EOF'
@@ -196,7 +195,6 @@ if ! systemctl cat clickhouse-server | grep -q '^\[Install\]'; then
 WantedBy=multi-user.target
 EOF
 else
-  # Keep a copy under /etc/ so we can safely edit in future
   cp -f /usr/lib/systemd/system/clickhouse-server.service /etc/systemd/system/clickhouse-server.service || true
 fi
 
@@ -254,7 +252,6 @@ cat >/etc/systemd/system/clickhouse-backup.service <<'EOF'
 Description=ClickHouse BACKUP DATABASE default -> S3 disk
 After=network-online.target clickhouse-server.service
 Wants=network-online.target
-
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/clickhouse-backup.sh
@@ -266,12 +263,10 @@ EOF
 cat >/etc/systemd/system/clickhouse-backup.timer <<'EOF'
 [Unit]
 Description=Run ClickHouse Backup Daily
-
 [Timer]
 OnCalendar=daily
 RandomizedDelaySec=10m
 Persistent=true
-
 [Install]
 WantedBy=timers.target
 EOF
@@ -281,15 +276,6 @@ systemctl enable --now clickhouse-backup.timer
 systemctl list-timers --all | grep clickhouse-backup || true
 
 # ================= Prometheus + Grafana + Exporters (PM-style) =================
-
-# ---- Install prerequisites via PM ----
-if [[ "$PM" == "apt" ]]; then
-  apt-get update -y
-  apt-get install -y curl tar gzip jq || true
-else
-  $PM -y makecache || true
-  $PM -y install curl tar gzip jq || true
-fi
 
 # ---- Prometheus (binary install; same on both) ----
 cd /opt
@@ -351,7 +337,6 @@ systemctl enable --now prometheus
 
 # ---- Grafana (PM-specific repo install) ----
 if [[ "$PM" == "apt" ]]; then
-  # Grafana OSS apt repo
   install -m 0755 -d /usr/share/keyrings
   curl -fsSL https://packages.grafana.com/gpg.key | gpg --dearmor -o /usr/share/keyrings/grafana.gpg
   echo "deb [signed-by=/usr/share/keyrings/grafana.gpg] https://packages.grafana.com/oss/deb stable main" \
@@ -359,7 +344,6 @@ if [[ "$PM" == "apt" ]]; then
   apt-get update -y
   apt-get install -y grafana
 else
-  # Grafana OSS rpm repo
   if [[ ! -f /etc/yum.repos.d/grafana.repo ]]; then
     cat >/etc/yum.repos.d/grafana.repo <<'REPO'
 [grafana]

@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 exec > >(tee -a /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
-echo "[userdata] start $(date -Is)"
+echo "[userdata-redpanda] start $(date -Is)"
 
 # ---------------- Inputs from Terraform ----------------
 EBS_DEV="${EBS_DEVICE}"                     # "" => auto-pick largest non-root NVMe
 MNT="${MOUNT_POINT}"                        # e.g., "/var/lib/redpanda"
 MARKER_FILE="${MARKER_FILE}"                # e.g., "/var/local/BOOTSTRAP_OK"
-BACKUP_BUCKET="${BACKUP_BUCKET}"            # e.g., "usekarma.dev-prod"
-BACKUP_PREFIX="${BACKUP_PREFIX}"            # e.g., "redpanda"
+BACKUP_BUCKET="${BACKUP_BUCKET:-}"          # (unused here; safe)
+BACKUP_PREFIX="${BACKUP_PREFIX:-}"          # (unused here; safe)
 AWS_REGION="${AWS_REGION}"                  # e.g., "us-east-1"
+
+# Optional boot topic args
+REDPANDA_BOOT_TOPIC="${REDPANDA_BOOT_TOPIC:-}"
+REDPANDA_PARTITIONS="${REDPANDA_PARTITIONS:-3}"
+REDPANDA_RF="${REDPANDA_RF:-1}"
 
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done
 
 # ---------------- Detect package manager / distro -------
 PM=""
-if command -v dnf >/dev/null 2>&1; then
-  PM="dnf" ; DISTRO="al2023"
-elif command -v yum >/dev/null 2>&1; then
-  PM="yum" ; DISTRO="al2"
-elif command -v apt-get >/dev/null 2>&1; then
-  PM="apt" ; DISTRO="ubuntu"
-else
-  echo "ERROR: No supported package manager found (dnf/yum/apt)" >&2
-  exit 1
-fi
+DISTRO=""
+if command -v dnf >/dev/null 2>&1; then PM="dnf"; DISTRO="al2023"
+elif command -v yum >/dev/null 2>&1; then PM="yum"; DISTRO="al2"
+elif command -v apt-get >/dev/null 2>&1; then PM="apt"; DISTRO="ubuntu"
+else echo "ERROR: No supported package manager found (dnf/yum/apt)" >&2; exit 1; fi
 
 # ---------------- Install & start SSM -------------------
 if [[ "$PM" == "apt" ]]; then
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y
+  apt-get update -y || true
   apt-get install -y amazon-ssm-agent || true
 else
   $PM -y update || true
@@ -76,7 +76,6 @@ if [[ -n "$MNT" ]]; then
       mkfs.xfs -f "$DATA_DEV"
     fi
     UUID="$(blkid -s UUID -o value "$DATA_DEV")"
-    # Remove stale lines for this mountpoint or legacy /dev/xvdb
     sed -i "\|[[:space:]]$MNT[[:space:]]|d;/^\/dev\/xvdb[[:space:]]/d" /etc/fstab
     grep -q "$UUID" /etc/fstab || echo "UUID=$UUID  $MNT  xfs  defaults,nofail  0  2" >> /etc/fstab
     mount -a
@@ -86,24 +85,19 @@ if [[ -n "$MNT" ]]; then
   fi
 fi
 
-# ---------------- Install Redpanda --------------------
-# Add official repos and install redpanda + rpk
+# ---------------- Install Redpanda (+rpk) ----------------
 if [[ "$PM" == "apt" ]]; then
-  # Redpanda deb repo bootstrap
   curl -1sLf 'https://dl.redpanda.com/nzc4ZYQK3WRGd9sy/redpanda/cfg/setup/bash.deb.sh' | bash
   apt-get update -y
   apt-get install -y redpanda redpanda-rpk
 else
-  # Redpanda rpm repo bootstrap (works for AL2023/AL2)
   curl -1sLf 'https://dl.redpanda.com/nzc4ZYQK3WRGd9sy/redpanda/cfg/setup/bash.rpm.sh' | bash
   $PM -y install redpanda redpanda-rpk
 fi
 
-# Ensure expected data dir layout
-# Redpanda default: /var/lib/redpanda/data
+# ---------------- Layout & ownership --------------------
 mkdir -p /var/lib/redpanda
 if [[ -n "$MNT" && "$MNT" != "/var/lib/redpanda" && -d "$MNT" ]]; then
-  # If MNT provided and different, move data there via symlink for simplicity
   rsync -aHAX --delete /var/lib/redpanda/ "$MNT"/ || true
   rm -rf /var/lib/redpanda
   ln -s "$MNT" /var/lib/redpanda
@@ -111,24 +105,57 @@ fi
 mkdir -p /var/lib/redpanda/data
 chown -R redpanda:redpanda /var/lib/redpanda || true
 
-# Single-node/dev-friendly toggle to avoid strict resource checks
-# (safe for PoC; remove for production)
-if [[ -f /etc/redpanda/redpanda.yaml ]]; then
-  # set developer_mode true (idempotent)
-  sed -i 's/^\(\s*\)#\?\s*developer_mode:.*$/\1developer_mode: true/' /etc/redpanda/redpanda.yaml || true
-fi
+# ---------------- Static config (single node) ------------
+PRIV_IP="$(hostname -I | awk '{print $1}')"
 
-# Enable & start redpanda
+# Stop in case service autostarted with defaults
+systemctl stop redpanda || true
+
+cat >/etc/redpanda/redpanda.yaml <<EOF
+config_file_version: 2
+redpanda:
+  node_id: 0
+  data_directory: /var/lib/redpanda/data
+  developer_mode: true
+  auto_create_topics_enabled: true
+  kafka_api:
+    - address: 0.0.0.0
+      port: 9092
+  advertised_kafka_api:
+    - address: ${PRIV_IP}
+      port: 9092
+  rpc_server:
+    address: 0.0.0.0
+    port: 33145
+  advertised_rpc_api:
+    address: ${PRIV_IP}
+    port: 33145
+  admin:
+    - address: 0.0.0.0
+      port: 9644
+pandaproxy: {}
+schema_registry: {}
+rpk:
+  overprovisioned: true
+  enable_usage_stats: false
+EOF
+
+# ---------------- Start & wait ---------------------------
 systemctl enable --now redpanda
-systemctl is-active --quiet redpanda
+# Wait for Kafka and Admin sockets
+for i in {1..60}; do ss -ltn | grep -q ':9092' && break || sleep 1; done
+for i in {1..60}; do ss -ltn | grep -q ':9644' && break || sleep 1; done
 
-# Basic smoke test (non-fatal)
+# ---------------- Smoke test -----------------------------
 rpk version || true
 rpk cluster info || true
-rpk topic create init-check || true
-echo "ok" | rpk topic produce init-check || true
-rpk topic consume init-check -n 1 || true
+
+# Optional: create a boot topic
+if [[ -n "$REDPANDA_BOOT_TOPIC" ]]; then
+  rpk topic create "$REDPANDA_BOOT_TOPIC" -p "$REDPANDA_PARTITIONS" -r "$REDPANDA_RF" \
+    --brokers "${PRIV_IP}:9092" || true
+fi
 
 # ---------------- Marker -------------------------------
 echo "$(date -u +%FT%TZ) BOOTSTRAP_OK" > "$MARKER_FILE"
-echo "[userdata] done $(date -Is)"
+echo "[userdata-redpanda] done $(date -Is)"
