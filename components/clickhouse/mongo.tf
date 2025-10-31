@@ -102,6 +102,10 @@ resource "aws_instance" "mongo" {
 
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id
+
+    MONGO_PORT  = local.mongo_port
+    MONGO_MAJOR = try(local.config.mongo_major, "7.0")
+    RS_NAME     = try(local.config.mongo_rs_name, "rs0")
   }))
 
   tags = merge(local.tags, {

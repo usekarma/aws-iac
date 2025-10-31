@@ -3,18 +3,17 @@ set -euxo pipefail
 exec > >(tee -a /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 echo "[userdata-mongo] start $(date -Is)"
 
-# ---------------- Inputs from Terraform ----------------
-EBS_DEV="${EBS_DEVICE}"                      # "" => auto-pick largest non-root NVMe
-MNT="${MOUNT_POINT}"                         # e.g., "/var/lib/mongo"
-MARKER_FILE="${MARKER_FILE}"                 # e.g., "/var/local/BOOTSTRAP_OK"
-BACKUP_BUCKET="${BACKUP_BUCKET}"             # e.g., "usekarma.dev-prod"
-BACKUP_PREFIX="${BACKUP_PREFIX}"             # e.g., "mongo"
-AWS_REGION="${AWS_REGION}"                   # e.g., "us-east-1"
+# ---------------- Inputs from Terraform (bind once) ----
+export EBS_DEV="${EBS_DEVICE}"                      # "" => auto-pick largest non-root NVMe
+export MNT="${MOUNT_POINT}"                         # e.g., "/var/lib/mongo"
+export MARKER_FILE="${MARKER_FILE}"                 # e.g., "/var/local/BOOTSTRAP_OK"
+export BACKUP_BUCKET="${BACKUP_BUCKET}"             # e.g., "usekarma.dev-prod"
+export BACKUP_PREFIX="${BACKUP_PREFIX}"             # e.g., "mongo"
+export AWS_REGION="${AWS_REGION}"                   # e.g., "us-east-1"
 
-# Allow override; defaults sane
-MONGO_MAJOR="${MONGO_MAJOR:-7.0}"
-MONGO_PORT="${MONGO_PORT:-27017}"
-RS_NAME="${RS_NAME:-rs0}"
+export MONGO_MAJOR="${MONGO_MAJOR}"
+export MONGO_PORT="${MONGO_PORT}"
+export RS_NAME="${RS_NAME}"
 
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done
@@ -47,9 +46,9 @@ systemctl is-active --quiet amazon-ssm-agent
 
 # ---------------- Core tools ----------------------------
 if [[ "$PM" == "apt" ]]; then
-  apt-get install -y ca-certificates gnupg jq rsync xfsprogs xz-utils curl awscli zstd
+  apt-get install -y ca-certificates gnupg jq rsync xfsprogs xz-utils curl awscli zstd netcat
 else
-  $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd --skip-broken || true
+  $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd nmap-ncat --skip-broken || true
 fi
 
 # ---------------- Optional: pick & mount data disk -------
@@ -93,42 +92,42 @@ fi
 
 # ---------------- Install MongoDB -----------------------
 if [[ "$DISTRO" == "al2023" ]]; then
-  cat >/etc/yum.repos.d/mongodb-org-${MONGO_MAJOR}.repo <<EOF
-[mongodb-org-${MONGO_MAJOR}]
+  cat >/etc/yum.repos.d/mongodb-org-$${MONGO_MAJOR}.repo <<EOF
+[mongodb-org-$${MONGO_MAJOR}]
 name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/redhat/9/mongodb-org/${MONGO_MAJOR}/x86_64/
+baseurl=https://repo.mongodb.org/yum/redhat/9/mongodb-org/$${MONGO_MAJOR}/x86_64/
 gpgcheck=1
 enabled=1
-gpgkey=https://pgp.mongodb.com/server-${MONGO_MAJOR}.asc
+gpgkey=https://pgp.mongodb.com/server-$${MONGO_MAJOR}.asc
 EOF
   dnf clean all || true
   dnf install -y mongodb-org
 elif [[ "$DISTRO" == "al2" ]]; then
-  cat >/etc/yum.repos.d/mongodb-org-${MONGO_MAJOR}.repo <<EOF
-[mongodb-org-${MONGO_MAJOR}]
+  cat >/etc/yum.repos.d/mongodb-org-$${MONGO_MAJOR}.repo <<EOF
+[mongodb-org-$${MONGO_MAJOR}]
 name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/redhat/7/mongodb-org/${MONGO_MAJOR}/x86_64/
+baseurl=https://repo.mongodb.org/yum/redhat/7/mongodb-org/$${MONGO_MAJOR}/x86_64/
 gpgcheck=1
 enabled=1
-gpgkey=https://pgp.mongodb.com/server-${MONGO_MAJOR}.asc
+gpgkey=https://pgp.mongodb.com/server-$${MONGO_MAJOR}.asc
 EOF
   yum clean all || true
   yum install -y mongodb-org
 elif [[ "$DISTRO" == "ubuntu" ]]; then
   . /etc/os-release
-  CODENAME="${VERSION_CODENAME:-$(lsb_release -sc 2>/dev/null || echo jammy)}"
+  CODENAME="$${VERSION_CODENAME:-$(lsb_release -sc 2>/dev/null || echo jammy)}"
   install -d -m 0755 /etc/apt/keyrings
-  curl -fsSL https://pgp.mongodb.com/server-${MONGO_MAJOR}.asc \
-    | gpg --dearmor -o /etc/apt/keyrings/mongodb-org-${MONGO_MAJOR}.gpg
-  echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-org-${MONGO_MAJOR}.gpg] https://repo.mongodb.org/apt/ubuntu ${CODENAME}/mongodb-org/${MONGO_MAJOR} multiverse" \
-    >/etc/apt/sources.list.d/mongodb-org-${MONGO_MAJOR}.list
+  curl -fsSL https://pgp.mongodb.com/server-$${MONGO_MAJOR}.asc \
+    | gpg --dearmor -o /etc/apt/keyrings/mongodb-org-$${MONGO_MAJOR}.gpg
+  echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-org-$${MONGO_MAJOR}.gpg] https://repo.mongodb.org/apt/ubuntu $${CODENAME}/mongodb-org/$${MONGO_MAJOR} multiverse" \
+    >/etc/apt/sources.list.d/mongodb-org-$${MONGO_MAJOR}.list
   apt-get update -y
-  apt-get install -y mongodb-org
+  apt-get install -y mongodb-org netcat-openbsd
 fi
 
 # ---------------- Configure mongod ----------------------
 # Ensure data dir exists; move/symlink if MNT differs
-mkdir -p /var/lib/mongo
+mkdir -p /var/lib/mongo /var/log/mongodb
 if [[ -n "$MNT" && "$MNT" != "/var/lib/mongo" && -d "$MNT" ]]; then
   rsync -aHAX --delete /var/lib/mongo/ "$MNT"/ || true
   rm -rf /var/lib/mongo
@@ -138,7 +137,7 @@ fi
 # Choose correct service user/group (mongod on RHEL, mongodb on Debian)
 MONGO_USER="$(id -u mongod >/dev/null 2>&1 && echo mongod || echo mongodb)"
 MONGO_GROUP="$MONGO_USER"
-chown -R "$MONGO_USER":"$MONGO_GROUP" /var/lib/mongo
+chown -R "$MONGO_USER":"$MONGO_GROUP" /var/lib/mongo /var/log/mongodb
 
 # Write a clean config (bind 0.0.0.0, custom port, single-node RS)
 install -d -m 0755 /etc/mongod.conf.d || true
@@ -152,19 +151,19 @@ storage:
   journal:
     enabled: true
 net:
-  port: ${MONGO_PORT}
+  port: $${MONGO_PORT}
   bindIp: 0.0.0.0
 processManagement:
   timeZoneInfo: /usr/share/zoneinfo
 replication:
-  replSetName: ${RS_NAME}
+  replSetName: $${RS_NAME}
 EOF
 
 systemctl enable --now mongod
 
-# Wait for socket
+# Wait for socket on the configured port
 for i in {1..60}; do
-  ss -ltn "sport = :${MONGO_PORT}" | grep -q LISTEN && break || sleep 1
+  nc -z 127.0.0.1 "$${MONGO_PORT}" && break || sleep 1
 done
 
 # Install mongosh client if not present (usually included with mongodb-org)
@@ -177,44 +176,45 @@ if ! command -v mongosh >/dev/null 2>&1; then
 fi
 
 # Initiate single-node replica set using the instance's private IP
-PRIV_IP="$(hostname -I | awk '{print $1}')"
-mongosh --quiet "mongodb://127.0.0.1:${MONGO_PORT}" --eval \
-  "try{rs.status()}catch(e){rs.initiate({_id:'${RS_NAME}', members:[{_id:0, host:'${PRIV_IP}:${MONGO_PORT}'}]})}" || true
+PRIV_IP="$(curl -fsS http://169.254.169.254/latest/meta-data/local-ipv4 || hostname -I | awk '{print $1}')"
+mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" --eval \
+  "try{rs.status()}catch(e){rs.initiate({_id:'$${RS_NAME}', members:[{_id:0, host:'$${PRIV_IP}:$${MONGO_PORT}'}]})}" || true
 
 # Health checks
-mongosh --quiet "mongodb://127.0.0.1:${MONGO_PORT}" --eval "db.adminCommand({ping:1})" || true
+mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" --eval "db.adminCommand({ping:1})" || true
 systemctl status mongod --no-pager || true
 
 # ---------------- Optional: S3 backups (mongodump) ------
-if [[ -n "${AWS_REGION}" && -n "${BACKUP_BUCKET}" && -n "${BACKUP_PREFIX}" ]]; then
+if [[ -n "$AWS_REGION" && -n "$BACKUP_BUCKET" && -n "$BACKUP_PREFIX" ]]; then
   install -m 0755 -d /usr/local/bin
   cat >/usr/local/bin/mongo-backup-s3.sh <<'BKS'
 #!/usr/bin/env bash
 set -euo pipefail
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="/tmp/mongo-dump-$TS"
-mongodump --uri="mongodb://127.0.0.1:27017" --gzip --out "$OUT"
-aws s3 cp "$OUT" "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/dump-$TS/" --recursive --region "${AWS_REGION}"
+mongodump --uri="mongodb://127.0.0.1:$${MONGO_PORT}" --gzip --out "$OUT"
+aws s3 cp "$OUT" "s3://$${BACKUP_BUCKET}/$${BACKUP_PREFIX}/dump-$TS/" --recursive --region "$${AWS_REGION}"
 rm -rf "$OUT"
-echo "Uploaded Mongo dump to s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/dump-$TS/"
+echo "Uploaded Mongo dump to s3://$${BACKUP_BUCKET}/$${BACKUP_PREFIX}/dump-$TS/"
 BKS
   chmod +x /usr/local/bin/mongo-backup-s3.sh
 
-  cat >/etc/systemd/system/mongo-backup.service <<'SVC'
+  cat >/etc/systemd/system/mongo-backup.service <<EOF
 [Unit]
 Description=MongoDB dump to S3
 After=network-online.target mongod.service
 Wants=network-online.target
 [Service]
 Type=oneshot
-Environment=AWS_REGION=''"${AWS_REGION}"''
-Environment=BACKUP_BUCKET=''"${BACKUP_BUCKET}"''
-Environment=BACKUP_PREFIX=''"${BACKUP_PREFIX}"''
+Environment=AWS_REGION=$${AWS_REGION}
+Environment=BACKUP_BUCKET=$${BACKUP_BUCKET}
+Environment=BACKUP_PREFIX=$${BACKUP_PREFIX}
+Environment=MONGO_PORT=$${MONGO_PORT}
 ExecStart=/usr/local/bin/mongo-backup-s3.sh
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-SVC
+EOF
 
   cat >/etc/systemd/system/mongo-backup.timer <<'TMR'
 [Unit]

@@ -120,6 +120,12 @@ resource "aws_instance" "redpanda" {
 
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id
+
+    REDPANDA_PORT       = local.redpanda_port
+    REDPANDA_ADMIN_PORT = local.redpanda_admin_port
+    REDPANDA_BOOT_TOPIC = local.redpanda_topic
+    REDPANDA_PARTITIONS = local.redpanda_partitions
+    REDPANDA_RF         = local.redpanda_retention
   }))
 
   tags = merge(local.tags, {

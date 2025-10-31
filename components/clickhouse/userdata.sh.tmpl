@@ -14,8 +14,8 @@ BACKUP_PREFIX="${BACKUP_PREFIX}"            # e.g., "clickhouse"
 AWS_REGION="${AWS_REGION}"                  # e.g., "us-east-1"
 
 # --- Fixed: set real versions, not region ---
-PROMETHEUS_VER="${PROMETHEUS_VER:-2.53.1}"
-NODEEXP_VER="${NODEEXP_VER:-1.8.2}"
+PROMETHEUS_VER="${PROMETHEUS_VER}"
+NODEEXP_VER="${NODEEXP_VER}"
 
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done

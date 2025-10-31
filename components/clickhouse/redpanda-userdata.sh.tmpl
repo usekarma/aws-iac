@@ -4,17 +4,17 @@ exec > >(tee -a /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 
 echo "[userdata-redpanda] start $(date -Is)"
 
 # ---------------- Inputs from Terraform ----------------
-EBS_DEV="${EBS_DEVICE}"                     # "" => auto-pick largest non-root NVMe
-MNT="${MOUNT_POINT}"                        # e.g., "/var/lib/redpanda"
-MARKER_FILE="${MARKER_FILE}"                # e.g., "/var/local/BOOTSTRAP_OK"
-BACKUP_BUCKET="${BACKUP_BUCKET:-}"          # (unused here; safe)
-BACKUP_PREFIX="${BACKUP_PREFIX:-}"          # (unused here; safe)
-AWS_REGION="${AWS_REGION}"                  # e.g., "us-east-1"
+EBS_DEV="${EBS_DEVICE}"                   # "" => auto-pick largest non-root NVMe
+MNT="${MOUNT_POINT}"                      # e.g., "/var/lib/redpanda"
+MARKER_FILE="${MARKER_FILE}"              # e.g., "/var/local/BOOTSTRAP_OK"
+BACKUP_BUCKET="${BACKUP_BUCKET}"          # (unused here; safe)
+BACKUP_PREFIX="${BACKUP_PREFIX}"          # (unused here; safe)
+AWS_REGION="${AWS_REGION}"                # e.g., "us-east-1"
 
-# Optional boot topic args
-REDPANDA_BOOT_TOPIC="${REDPANDA_BOOT_TOPIC:-}"
-REDPANDA_PARTITIONS="${REDPANDA_PARTITIONS:-3}"
-REDPANDA_RF="${REDPANDA_RF:-1}"
+# Optional boot topic args (filled by templatefile; may be empty)
+REDPANDA_BOOT_TOPIC="${REDPANDA_BOOT_TOPIC}"
+REDPANDA_PARTITIONS="${REDPANDA_PARTITIONS}"
+REDPANDA_RF="${REDPANDA_RF}"
 
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done
@@ -107,8 +107,6 @@ chown -R redpanda:redpanda /var/lib/redpanda || true
 
 # ---------------- Static config (single node) ------------
 PRIV_IP="$(hostname -I | awk '{print $1}')"
-
-# Stop in case service autostarted with defaults
 systemctl stop redpanda || true
 
 cat >/etc/redpanda/redpanda.yaml <<EOF
@@ -122,13 +120,13 @@ redpanda:
     - address: 0.0.0.0
       port: 9092
   advertised_kafka_api:
-    - address: ${PRIV_IP}
+    - address: $${PRIV_IP}
       port: 9092
   rpc_server:
     address: 0.0.0.0
     port: 33145
   advertised_rpc_api:
-    address: ${PRIV_IP}
+    address: $${PRIV_IP}
     port: 33145
   admin:
     - address: 0.0.0.0
@@ -142,7 +140,6 @@ EOF
 
 # ---------------- Start & wait ---------------------------
 systemctl enable --now redpanda
-# Wait for Kafka and Admin sockets
 for i in {1..60}; do ss -ltn | grep -q ':9092' && break || sleep 1; done
 for i in {1..60}; do ss -ltn | grep -q ':9644' && break || sleep 1; done
 
@@ -153,7 +150,7 @@ rpk cluster info || true
 # Optional: create a boot topic
 if [[ -n "$REDPANDA_BOOT_TOPIC" ]]; then
   rpk topic create "$REDPANDA_BOOT_TOPIC" -p "$REDPANDA_PARTITIONS" -r "$REDPANDA_RF" \
-    --brokers "${PRIV_IP}:9092" || true
+    --brokers "$${PRIV_IP}:9092" || true
 fi
 
 # ---------------- Marker -------------------------------
