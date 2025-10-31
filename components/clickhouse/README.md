@@ -1,5 +1,7 @@
 # ClickHouse Component (EC2) — **Redpanda-ready + S3 backups + Observability**
 
+![ClickHouse Component](../../img/clickhouse.drawio.png)
+
 Terraform component to deploy **ClickHouse on EC2** with:
 
 - Dedicated **EBS** data volume  
