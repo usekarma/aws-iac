@@ -15,6 +15,9 @@ export MONGO_MAJOR="${MONGO_MAJOR}"
 export MONGO_PORT="${MONGO_PORT}"
 export RS_NAME="${RS_NAME}"
 
+export NODE_EXPORTER_VERSION="${NODE_EXPORTER_VERSION}"
+export MONGODB_EXPORTER_VERSION="${MONGODB_EXPORTER_VERSION}"
+
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done
 
@@ -126,7 +129,6 @@ elif [[ "$DISTRO" == "ubuntu" ]]; then
 fi
 
 # ---------------- Configure mongod ----------------------
-# Ensure data dir exists; move/symlink if MNT differs
 mkdir -p /var/lib/mongo /var/log/mongodb
 if [[ -n "$MNT" && "$MNT" != "/var/lib/mongo" && -d "$MNT" ]]; then
   rsync -aHAX --delete /var/lib/mongo/ "$MNT"/ || true
@@ -134,12 +136,10 @@ if [[ -n "$MNT" && "$MNT" != "/var/lib/mongo" && -d "$MNT" ]]; then
   ln -s "$MNT" /var/lib/mongo
 fi
 
-# Choose correct service user/group (mongod on RHEL, mongodb on Debian)
 MONGO_USER="$(id -u mongod >/dev/null 2>&1 && echo mongod || echo mongodb)"
 MONGO_GROUP="$MONGO_USER"
 chown -R "$MONGO_USER":"$MONGO_GROUP" /var/lib/mongo /var/log/mongodb
 
-# Write a clean config (bind 0.0.0.0, custom port, single-node RS)
 install -d -m 0755 /etc/mongod.conf.d || true
 cat >/etc/mongod.conf <<EOF
 systemLog:
@@ -148,8 +148,6 @@ systemLog:
   path: /var/log/mongodb/mongod.log
 storage:
   dbPath: /var/lib/mongo
-  journal:
-    enabled: true
 net:
   port: $${MONGO_PORT}
   bindIp: 0.0.0.0
@@ -183,6 +181,71 @@ mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" --eval \
 # Health checks
 mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" --eval "db.adminCommand({ping:1})" || true
 systemctl status mongod --no-pager || true
+
+# ---------------- Exporters (Mongo & Node) ---------------
+# Detect arch for GitHub release assets
+ARCH="amd64"
+case "$(uname -m)" in
+  x86_64) ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+esac
+
+# Install node_exporter
+install -d -m 0755 /usr/local/src/exporters
+pushd /usr/local/src/exporters >/dev/null
+NODE_TGZ="node_exporter-${NODE_EXPORTER_VERSION}.linux-$${ARCH}.tar.gz"
+curl -fL -o "$NODE_TGZ" "https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXPORTER_VERSION}/$NODE_TGZ"
+tar -xzf "$NODE_TGZ"
+install -m 0755 "node_exporter-${NODE_EXPORTER_VERSION}.linux-$${ARCH}/node_exporter" /usr/local/bin/node_exporter
+cat >/etc/systemd/system/node_exporter.service <<EOF
+[Unit]
+Description=Prometheus Node Exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=root
+ExecStart=/usr/local/bin/node_exporter \
+  --web.listen-address=":9100" \
+  --collector.filesystem.fs-types-exclude="^(autofs|binfmt_misc|bpf|cgroup.*|debugfs|devpts|devtmpfs|fuse.*|hugetlbfs|mqueue|overlay|proc|pstore|rpc_pipefs|securityfs|sysfs|tracefs)$"
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Install mongodb_exporter (Percona)
+MONGOEXP_TGZ="mongodb_exporter-${MONGODB_EXPORTER_VERSION}.linux-$${ARCH}.tar.gz"
+curl -fL -o "$MONGOEXP_TGZ" "https://github.com/percona/mongodb_exporter/releases/download/v${MONGODB_EXPORTER_VERSION}/$MONGOEXP_TGZ"
+tar -xzf "$MONGOEXP_TGZ"
+install -m 0755 "mongodb_exporter-${MONGODB_EXPORTER_VERSION}.linux-$${ARCH}/mongodb_exporter" /usr/local/bin/mongodb_exporter
+popd >/dev/null
+
+# Systemd service for mongodb_exporter (no auth; localhost)
+cat >/etc/systemd/system/mongodb_exporter.service <<EOF
+[Unit]
+Description=MongoDB Exporter
+After=network-online.target mongod.service
+Wants=network-online.target
+
+[Service]
+User=root
+ExecStart=/usr/local/bin/mongodb_exporter \
+  --mongodb.uri="mongodb://127.0.0.1:${MONGO_PORT}/admin?directConnection=true" \
+  --web.listen-address=":9216"
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable & start exporters
+systemctl daemon-reload
+systemctl enable --now node_exporter mongodb_exporter
+
+# Sanity checks (non-fatal)
+curl -fsS http://127.0.0.1:9100/metrics | head -n 5 || true
+curl -fsS http://127.0.0.1:9216/metrics | head -n 5 || true
 
 # ---------------- Optional: S3 backups (mongodump) ------
 if [[ -n "$AWS_REGION" && -n "$BACKUP_BUCKET" && -n "$BACKUP_PREFIX" ]]; then

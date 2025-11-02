@@ -26,6 +26,15 @@ locals {
   clickhouse_http_port = try(local.config.http_port, 8123)
   clickhouse_tcp_port  = try(local.config.tcp_port, 9000)
 
+  # Grafana
+  grafana_url   = try(local.config.grafana_url, "http://127.0.0.1:3000")
+  grafana_admin = try(local.config.grafana_url, "admin")
+  grafana_pass  = try(local.config.grafana_url, "admin")
+
+  # Prometheus
+  prometheus_url     = try(local.config.prometheus_url, "http://127.0.0.1:9090")
+  prometheus_ds_name = try(local.config.prometheus_ds_name, "Prometheus")
+
   vpc       = jsondecode(nonsensitive(data.aws_ssm_parameter.vpc_runtime.value))
   vpc_id    = local.vpc.vpc_id
   vpc_sg_id = local.vpc.default_sg_id
@@ -231,14 +240,20 @@ resource "aws_instance" "clickhouse" {
     BACKUP_BUCKET = local.backup_bucket_name
     BACKUP_PREFIX = local.backup_prefix
 
-    # New Redpanda vars
+    PROMETHEUS_VER = local.prometheus_ver
+    NODEEXP_VER    = local.nodeexp_ver
+
+    MONGO_HOST      = aws_instance.mongo[0].private_ip
+    MONGO_EXP_PORT  = local.mongo_exporter_port
+    MONGO_NODE_PORT = local.mongo_nodeexp_port
+
+    REDPANDA_HOST       = aws_instance.redpanda[0].private_ip
+    REDPANDA_EXP_PORT   = local.redpanda_exporter_port
+    REDPANDA_NODE_PORT  = local.redpanda_nodeexp_port
     REDPANDA_BROKERS    = format("%s:%d", aws_instance.redpanda[0].private_ip, local.redpanda_port)
     REDPANDA_TOPIC      = local.redpanda_topic
     REDPANDA_PARTITIONS = local.redpanda_partitions
     REDPANDA_RETMS      = local.redpanda_retention
-
-    PROMETHEUS_VER = local.prometheus_ver
-    NODEEXP_VER    = local.nodeexp_ver
 
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id

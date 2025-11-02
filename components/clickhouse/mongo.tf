@@ -5,6 +5,12 @@ locals {
   mongo_iops          = try(local.config.mongo_iops, 3000)
   mongo_throughput    = try(local.config.mongo_throughput, 125)
   mongo_port          = try(local.config.mongo_port, 27017)
+  mongo_major         = try(local.config.mongo_major, "7.0")
+  mongo_rs_name       = try(local.config.mongo_rs_name, "rs0")
+  mongo_exporter_ver  = try(local.config.mongo_exporter_ver, "0.40.0")
+  mongo_exporter_port = try(local.config.mongo_exporter_port, 9216)
+  mongo_nodeexp_ver   = try(local.config.mongo_nodeexp_ver, "1.8.2")
+  mongo_nodeexp_port  = try(local.config.mongo_node_port, 9100)
 
   # Which SGs may connect to Mongo? (e.g., Kafka Connect SG, ClickHouse SG)
   mongo_allowed_sg_ids = toset(try(local.config.mongo_allowed_security_group_ids, []))
@@ -56,6 +62,26 @@ resource "aws_vpc_security_group_ingress_rule" "mongo_from_cidrs_27017" {
   description       = "Mongo 27017 from allowed CIDR"
 }
 
+resource "aws_vpc_security_group_ingress_rule" "mongo_node_exporter" {
+  count                        = local.mongo_enable ? 1 : 0
+  security_group_id            = aws_security_group.mongo[0].id
+  referenced_security_group_id = aws_security_group.clickhouse.id
+  ip_protocol                  = "tcp"
+  from_port                    = local.mongo_nodeexp_port
+  to_port                      = local.mongo_nodeexp_port
+  description                  = "ClickHouse to Mongo Node Exporter 9100"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "mongo_exporter" {
+  count                        = local.mongo_enable ? 1 : 0
+  security_group_id            = aws_security_group.mongo[0].id
+  referenced_security_group_id = aws_security_group.clickhouse.id
+  ip_protocol                  = "tcp"
+  from_port                    = local.mongo_exporter_port
+  to_port                      = local.mongo_exporter_port
+  description                  = "ClickHouse to Mongo Exporter 9216"
+}
+
 # Data volume for Mongo
 resource "aws_ebs_volume" "mongo_data" {
   count             = local.mongo_enable ? 1 : 0
@@ -104,8 +130,11 @@ resource "aws_instance" "mongo" {
     AWS_REGION = data.aws_region.current.id
 
     MONGO_PORT  = local.mongo_port
-    MONGO_MAJOR = try(local.config.mongo_major, "7.0")
-    RS_NAME     = try(local.config.mongo_rs_name, "rs0")
+    MONGO_MAJOR = local.mongo_major
+    RS_NAME     = local.mongo_rs_name
+
+    MONGODB_EXPORTER_VERSION = local.mongo_exporter_ver
+    NODE_EXPORTER_VERSION    = local.mongo_nodeexp_ver
   }))
 
   tags = merge(local.tags, {

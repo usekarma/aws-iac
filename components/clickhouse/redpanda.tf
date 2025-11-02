@@ -4,11 +4,14 @@ locals {
   redpanda_volume_gb     = try(local.config.redpanda_volume_gb, 200)
   redpanda_iops          = try(local.config.redpanda_iops, 3000)
   redpanda_throughput    = try(local.config.redpanda_throughput, 125)
-  redpanda_port          = 9092
-  redpanda_admin_port    = 9644
+  redpanda_port          = try(local.config.redpanda_port, 9092)
+  redpanda_admin_port    = try(local.config.redpanda_admin_port, 9644)
   redpanda_topic         = try(local.config.redpanda_topic, "clickhouse_ingest")
   redpanda_partitions    = try(local.config.redpanda_partitions, 3)
   redpanda_retention     = try(local.config.redpanda_retention_ms, 604800000) # 7 days
+  redpanda_exporter_port = try(local.config.redpanda_exporter_port, 9644)
+  redpanda_nodeexp_ver   = try(local.config.redpanda_nodeexp_ver, "1.8.2")
+  redpanda_nodeexp_port  = try(local.config.redpanda_node_port, 9100)
 }
 
 # SG for Redpanda
@@ -74,6 +77,16 @@ resource "aws_vpc_security_group_ingress_rule" "redpanda_admin_from_clickhouse" 
   description                  = "ClickHouse to Redpanda Admin 9644"
 }
 
+resource "aws_vpc_security_group_ingress_rule" "redpanda_node_exporter" {
+  count                        = local.redpanda_enable ? 1 : 0
+  security_group_id            = aws_security_group.redpanda[0].id
+  referenced_security_group_id = aws_security_group.clickhouse.id
+  ip_protocol                  = "tcp"
+  from_port                    = local.redpanda_nodeexp_port
+  to_port                      = local.redpanda_nodeexp_port
+  description                  = "ClickHouse to Redpanda Node Exporter 9100"
+}
+
 # EBS volume (data)
 resource "aws_ebs_volume" "redpanda_data" {
   count             = local.redpanda_enable ? 1 : 0
@@ -126,6 +139,8 @@ resource "aws_instance" "redpanda" {
     REDPANDA_BOOT_TOPIC = local.redpanda_topic
     REDPANDA_PARTITIONS = local.redpanda_partitions
     REDPANDA_RF         = local.redpanda_retention
+
+    NODE_EXPORTER_VERSION = local.redpanda_nodeexp_ver
   }))
 
   tags = merge(local.tags, {

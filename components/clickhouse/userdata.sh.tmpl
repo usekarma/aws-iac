@@ -13,9 +13,18 @@ BACKUP_BUCKET="${BACKUP_BUCKET}"            # e.g., "usekarma.dev-prod"
 BACKUP_PREFIX="${BACKUP_PREFIX}"            # e.g., "clickhouse"
 AWS_REGION="${AWS_REGION}"                  # e.g., "us-east-1"
 
-# --- Fixed: set real versions, not region ---
-PROMETHEUS_VER="${PROMETHEUS_VER}"
-NODEEXP_VER="${NODEEXP_VER}"
+# --- Remote scrape targets (filled by templatefile/TF) ---
+MONGO_HOST="${MONGO_HOST}"                  # e.g. "10.0.1.10"
+MONGO_EXP_PORT="${MONGO_EXP_PORT}"          # mongo exporter (percona) e.g. 9216
+MONGO_NODE_PORT="${MONGO_NODE_PORT}"        # node_exporter on mongo host (9100)
+
+REDPANDA_HOST="${REDPANDA_HOST}"            # e.g. "10.0.2.20"
+REDPANDA_EXP_PORT="${REDPANDA_EXP_PORT}"    # redpanda admin metrics (9644)
+REDPANDA_NODE_PORT="${REDPANDA_NODE_PORT}"  # node_exporter on redpanda host (9100)
+
+# --- Versions passed from TF (do not default here) ---
+PROMETHEUS_VER="${PROMETHEUS_VER}"          # e.g., 2.55.1
+NODEEXP_VER="${NODEEXP_VER}"                # e.g., 1.8.2
 
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done
@@ -47,9 +56,9 @@ systemctl is-active --quiet amazon-ssm-agent
 
 # ---------------- Core tools ----------------------------
 if [[ "$PM" == "apt" ]]; then
-  apt-get install -y ca-certificates jq rsync xfsprogs xz-utils curl awscli zstd gpg
+  apt-get install -y ca-certificates jq rsync xfsprogs xz-utils curl awscli zstd gnupg tar gzip netcat-openbsd
 else
-  $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd gzip tar --skip-broken || true
+  $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd gzip tar nmap-ncat --skip-broken || true
 fi
 
 # ---------------- Optional: pick & mount data disk -------
@@ -82,7 +91,6 @@ if [[ -n "$MNT" ]]; then
       mkfs.xfs -f "$DATA_DEV"
     fi
     UUID="$(blkid -s UUID -o value "$DATA_DEV")"
-    # Remove stale lines for this mountpoint or legacy /dev/xvdb
     sed -i "\|[[:space:]]$MNT[[:space:]]|d;/^\/dev\/xvdb[[:space:]]/d" /etc/fstab
     grep -q "$UUID" /etc/fstab || echo "UUID=$UUID  $MNT  xfs  defaults,nofail  0  2" >> /etc/fstab
     mount -a
@@ -122,7 +130,7 @@ chown -R clickhouse:clickhouse "$TARGET_PATH"
 
 mkdir -p /etc/clickhouse-server/config.d
 
-# Use unquoted heredocs so bash expands at runtime; $${...} prevents Terraform pre-expansion
+# (Terraform must not expand these)
 cat >/etc/clickhouse-server/config.d/10-data-path.xml <<EOF
 <clickhouse>
   <path>$${TARGET_PATH}/</path>
@@ -147,33 +155,23 @@ Environment=AWS_DEFAULT_REGION=${AWS_REGION}
 EOF
 
 # ---------------- Conditionally add S3 disk -------------
-# Require ALL of: region, bucket, prefix
 if [[ -n "${AWS_REGION}" && -n "${BACKUP_BUCKET}" && -n "${BACKUP_PREFIX}" ]]; then
   mkdir -p /var/lib/clickhouse/disks/s3_backups
   chown -R clickhouse:clickhouse /var/lib/clickhouse/disks
-
-  # NOTE: $${...} so Terraform doesn't interpolate; bash will expand at runtime.
   cat >/etc/clickhouse-server/config.d/30-s3-backup.xml <<EOF
 <clickhouse>
   <storage_configuration>
     <disks>
       <s3_backups>
-        <!-- For BACKUP/RESTORE use s3_plain per docs -->
         <type>s3_plain</type>
-        <!-- Bucket + prefix MUST be part of endpoint; trailing slash required -->
         <endpoint>https://$${BACKUP_BUCKET}.s3.$${AWS_REGION}.amazonaws.com/$${BACKUP_PREFIX}/</endpoint>
-        <!-- Let ClickHouse fetch credentials from env & EC2/ECS metadata -->
         <use_environment_credentials>true</use_environment_credentials>
         <region>$${AWS_REGION}</region>
         <metadata_path>/var/lib/clickhouse/disks/s3_backups/</metadata_path>
       </s3_backups>
     </disks>
   </storage_configuration>
-
-  <!-- Allow this disk to be used by BACKUP/RESTORE -->
-  <backups>
-    <allowed_disk>s3_backups</allowed_disk>
-  </backups>
+  <backups><allowed_disk>s3_backups</allowed_disk></backups>
 </clickhouse>
 EOF
   chmod 0644 /etc/clickhouse-server/config.d/30-s3-backup.xml
@@ -182,11 +180,9 @@ else
 fi
 
 # ---------------- Validate config & start ---------------
-# Ensure data & log dirs exist with correct ownership
 mkdir -p /var/lib/clickhouse /var/log/clickhouse-server
 chown -R clickhouse:clickhouse /var/lib/clickhouse /var/log/clickhouse-server
 
-# Ensure service has [Install]
 if ! systemctl cat clickhouse-server | grep -q '^\[Install\]'; then
   cp -f /usr/lib/systemd/system/clickhouse-server.service /etc/systemd/system/clickhouse-server.service
   cat >>/etc/systemd/system/clickhouse-server.service <<'EOF'
@@ -200,29 +196,24 @@ fi
 
 systemctl daemon-reload
 
-# Try the normal path first
 if ! systemctl enable --now clickhouse-server 2>/tmp/ch-enable.err; then
   if grep -q 'systemd-sysv-install' /tmp/ch-enable.err; then
-    # Fallback for images without SysV helper: manually create enable symlink
     mkdir -p /etc/systemd/system/multi-user.target.wants
     ln -sf /etc/systemd/system/clickhouse-server.service \
            /etc/systemd/system/multi-user.target.wants/clickhouse-server.service
     systemctl start clickhouse-server
   else
-    echo "[userdata] systemctl enable failed:"
-    cat /tmp/ch-enable.err
+    echo "[userdata] systemctl enable failed:"; cat /tmp/ch-enable.err
   fi
 fi
 rm -f /tmp/ch-enable.err || true
 
-# Final sanity checks
 if ! systemctl is-active --quiet clickhouse-server; then
   echo "[userdata] ERROR: clickhouse-server not active"
   journalctl -u clickhouse-server -n 200 --no-pager || true
   exit 1
 fi
 
-# Ports & quick query
 ss -lntp | egrep '(:8123|:9000|:9009)' || true
 clickhouse-client -q "SELECT version(), now()"
 
@@ -231,10 +222,7 @@ install -m 0755 -d /usr/local/bin
 cat >/usr/local/bin/clickhouse-backup.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-
-# Use S3 disk if present; path is a subdir under the endpoint prefix
 if [[ "$(clickhouse-client -q "SELECT count() FROM system.disks WHERE name='s3_backups'")" -eq 1 ]]; then
   clickhouse-client --multiquery -q "
     BACKUP DATABASE default TO Disk('s3_backups', 'auto-$${TS}/');
@@ -275,9 +263,9 @@ systemctl daemon-reload
 systemctl enable --now clickhouse-backup.timer
 systemctl list-timers --all | grep clickhouse-backup || true
 
-# ================= Prometheus + Grafana + Exporters (PM-style) =================
+# ================= Prometheus + Grafana + Exporters =================
 
-# ---- Prometheus (binary install; same on both) ----
+# ---- Prometheus (binary install) ----
 cd /opt
 if [[ ! -d "/opt/prometheus-${PROMETHEUS_VER}.linux-amd64" ]]; then
   curl -fL -o /opt/prometheus.tgz \
@@ -301,17 +289,48 @@ install -d -o prometheus -g prometheus /var/lib/prometheus /etc/prometheus
 cat >/etc/prometheus/prometheus.yml <<'YAML'
 global:
   scrape_interval: 15s
+
 scrape_configs:
+  # Prometheus itself
   - job_name: 'prometheus'
-    static_configs: [{ targets: ['127.0.0.1:9090'] }]
-  - job_name: 'node'
-    static_configs: [{ targets: ['127.0.0.1:9100'] }]
+    static_configs:
+      - targets: ['127.0.0.1:9090']
+
+  # Local node_exporter (this Prom box)
+  - job_name: 'node-local'
+    static_configs:
+      - targets: ['127.0.0.1:9100']
+        labels: { role: 'prom-box' }
+
+  # Remote node_exporters (Mongo & Redpanda boxes)
+  - job_name: 'node-remote'
+    static_configs:
+      - targets:
+          - "${MONGO_HOST}:${MONGO_NODE_PORT}"
+          - "${REDPANDA_HOST}:${REDPANDA_NODE_PORT}"
+        labels: { role: 'remote-node' }
+
+  # ClickHouse native metrics on this host
   - job_name: 'clickhouse'
     metrics_path: /metrics
-    static_configs: [{ targets: ['127.0.0.1:9363'] }]
-  # - job_name: 'grafana'              # optional
-  #   metrics_path: /metrics
-  #   static_configs: [{ targets: ['127.0.0.1:3000'] }]
+    static_configs:
+      - targets: ['127.0.0.1:9363']
+
+  # MongoDB exporter (on Mongo box)
+  - job_name: 'mongo'
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "${MONGO_HOST}:${MONGO_EXP_PORT}"
+        labels: { service: 'mongodb' }
+
+  # Redpanda admin/metrics (on Redpanda box)
+  - job_name: 'redpanda'
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "${REDPANDA_HOST}:${REDPANDA_EXP_PORT}"
+        labels: { service: 'redpanda-admin' }
 YAML
 
 cat >/etc/systemd/system/prometheus.service <<'EOF'
@@ -335,7 +354,7 @@ chown -R prometheus:prometheus /etc/prometheus /var/lib/prometheus
 systemctl daemon-reload
 systemctl enable --now prometheus
 
-# ---- Grafana (PM-specific repo install) ----
+# ---- Grafana (repo install) ----
 if [[ "$PM" == "apt" ]]; then
   install -m 0755 -d /usr/share/keyrings
   curl -fsSL https://packages.grafana.com/gpg.key | gpg --dearmor -o /usr/share/keyrings/grafana.gpg
@@ -360,7 +379,8 @@ REPO
 fi
 systemctl enable --now grafana-server
 
-# ---- Node Exporter (binary install; same on both; bind to loopback) ----
+
+# ---- Node Exporter (binary install; loopback only) ----
 cd /opt
 if [[ ! -d "/opt/node_exporter-${NODEEXP_VER}.linux-amd64" ]]; then
   curl -fL -o /opt/node_exporter.tgz \
@@ -413,6 +433,12 @@ systemctl restart clickhouse-server || true
 # ---- Quick logs / ports ----
 ss -lntp | egrep '(:9090|:3000|:9100|:9363)' || true
 echo "[userdata:obs] Prometheus=9090 Grafana=3000 NodeExp=9100 CH-metrics=9363 configured"
+
+# Non-fatal reachability checks (these may fail until SGs are correct)
+curl -fsS "http://${MONGO_HOST}:${MONGO_EXP_PORT}/metrics" | head -n 3 || true
+curl -fsS "http://${REDPANDA_HOST}:${REDPANDA_EXP_PORT}/metrics" | head -n 3 || true
+curl -fsS "http://${MONGO_HOST}:${MONGO_NODE_PORT}/metrics" | head -n 3 || true
+curl -fsS "http://${REDPANDA_HOST}:${REDPANDA_NODE_PORT}/metrics" | head -n 3 || true
 
 # ---------------- Marker -------------------------------
 echo "$(date -u +%FT%TZ) BOOTSTRAP_OK" > "$MARKER_FILE"

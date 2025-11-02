@@ -127,7 +127,7 @@ rpk topic consume "$TOPIC" -n 1 --brokers "$RP_BROKERS" || true
 ```bash
 # Service
 systemctl status mongod --no-pager
-journalctl -u mongod -n 80 --no-pager | tail -n 40
+sudo journalctl -u mongod -n 80 --no-pager | tail -n 40
 
 # Local RS status
 mongosh --quiet --eval 'db.runCommand({ ping: 1 })'

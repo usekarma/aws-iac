@@ -16,6 +16,9 @@ REDPANDA_BOOT_TOPIC="${REDPANDA_BOOT_TOPIC}"
 REDPANDA_PARTITIONS="${REDPANDA_PARTITIONS}"
 REDPANDA_RF="${REDPANDA_RF}"
 
+# Exporter versions (overridable via TF)
+NODE_EXPORTER_VERSION="${NODE_EXPORTER_VERSION}"
+
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done
 
@@ -41,9 +44,9 @@ systemctl is-active --quiet amazon-ssm-agent
 
 # ---------------- Core tools ----------------------------
 if [[ "$PM" == "apt" ]]; then
-  apt-get install -y ca-certificates jq rsync xfsprogs xz-utils curl awscli zstd gnupg
+  apt-get install -y ca-certificates jq rsync xfsprogs xz-utils curl awscli zstd gnupg netcat
 else
-  $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd --skip-broken || true
+  $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd nmap-ncat --skip-broken || true
 fi
 
 # ---------------- Optional: pick & mount data disk -------
@@ -152,6 +155,46 @@ if [[ -n "$REDPANDA_BOOT_TOPIC" ]]; then
   rpk topic create "$REDPANDA_BOOT_TOPIC" -p "$REDPANDA_PARTITIONS" -r "$REDPANDA_RF" \
     --brokers "$${PRIV_IP}:9092" || true
 fi
+
+# ---------------- Exporters (node_exporter) --------------
+# Arch detect for release assets
+ARCH="amd64"
+case "$(uname -m)" in
+  x86_64) ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+esac
+
+install -d -m 0755 /usr/local/src/exporters
+pushd /usr/local/src/exporters >/dev/null
+
+NODE_TGZ="node_exporter-${NODE_EXPORTER_VERSION}.linux-$${ARCH}.tar.gz"
+curl -fL -o "$NODE_TGZ" "https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXPORTER_VERSION}/$NODE_TGZ"
+tar -xzf "$NODE_TGZ"
+install -m 0755 "node_exporter-${NODE_EXPORTER_VERSION}.linux-$${ARCH}/node_exporter" /usr/local/bin/node_exporter
+popd >/dev/null
+
+# systemd: node_exporter on :9100
+cat >/etc/systemd/system/node_exporter.service <<'EOF'
+[Unit]
+Description=Prometheus Node Exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=root
+ExecStart=/usr/local/bin/node_exporter --web.listen-address=":9100"
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now node_exporter
+
+# Sanity checks (non-fatal)
+curl -fsS http://127.0.0.1:9100/metrics | head -n 5 || true
+curl -fsS http://127.0.0.1:9644/metrics | head -n 5 || true
 
 # ---------------- Marker -------------------------------
 echo "$(date -u +%FT%TZ) BOOTSTRAP_OK" > "$MARKER_FILE"
