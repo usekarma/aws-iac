@@ -1,0 +1,18 @@
+# components/clickhouse/metrics-image/kconnect-jmx.yml
+
+startDelaySeconds: 0
+
+# Same task / awsvpc ns → localhost:9010 hits Kafka Connect JVM
+jmxUrl: service:jmx:rmi:///jndi/rmi://localhost:9010/jmxrmi
+
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+
+whitelistObjectNames:
+  - "kafka.connect:*"
+  - "kafka.consumer:*"
+  - "kafka.producer:*"
+  - "kafka.streams:*"
+  
+rules:
+  - pattern: ".*"

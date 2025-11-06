@@ -85,6 +85,8 @@ data "aws_subnet" "chosen" {
 
 data "aws_region" "current" {}
 
+data "aws_caller_identity" "current" {}
+
 resource "aws_iam_role" "this" {
   name               = "${var.nickname}-clickhouse-role"
   assume_role_policy = data.aws_iam_policy_document.assume.json

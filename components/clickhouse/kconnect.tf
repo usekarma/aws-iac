@@ -1,23 +1,30 @@
 locals {
-  ecs_cluster_nickname = try(local.cfg.ecs_cluster_nickname, null)
+  ecs_cluster_nickname = try(local.config.ecs_cluster_nickname, null)
   ecs_cluster          = try(jsondecode(data.aws_ssm_parameter.ecs_cluster_runtime.value), {})
   ecs_cluster_arn      = try(local.ecs_cluster.cluster_arn, null)
 
-  enable_kconnect = try(local.cfg.enable_kconnect, true)
+  enable_kconnect = try(local.config.enable_kconnect, true)
 
-  kconnect_service_name     = try(local.cfg.kconnect_service_name, "svc-${var.nickname}")
-  kconnect_desired_count    = try(local.cfg.kconnect_desired_count, 1)
-  kconnect_cpu              = try(local.cfg.kconnect_cpu, 256)
-  kconnect_memory           = try(local.cfg.mkconnect_emory, 512)
-  kconnect_platform_version = try(local.cfg.kconnect_platform_version, "LATEST")
-  kconnect_assign_public_ip = try(local.cfg.kconnect_assign_public_ip, false)
+  kconnect_service_name     = try(local.config.kconnect_service_name, "svc-${var.nickname}")
+  kconnect_desired_count    = try(local.config.kconnect_desired_count, 1)
+  kconnect_cpu              = try(local.config.kconnect_cpu, 1024)
+  kconnect_memory           = try(local.config.kconnect_memory, 2048)
+  kconnect_platform_version = try(local.config.kconnect_platform_version, "LATEST")
+  kconnect_assign_public_ip = try(local.config.kconnect_assign_public_ip, false)
 
-  kconnect       = try(local.cfg.kconnect, {})
+  kconnect       = try(local.config.kconnect, {})
   kconnect_name  = try(local.kconnect.name, "kconnect")
   kconnect_image = try(local.kconnect.image, null)
-  kconnect_port  = try(local.kconnect.port, null)
+  kconnect_port  = try(local.kconnect.port, 8083)
 
-  kconnect_log_retention_days = try(local.kconnect.log_retention_days.port, 14)
+  # Construct default ECR fallback URI dynamically
+  kconnect_metrics_repo           = "clickhouse-kconnect-jmx-exporter"
+  kconnect_metrics_fallback_image = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.id}.amazonaws.com/${local.kconnect_metrics_repo}:latest"
+
+  # metrics sidecar image (ECR URI) – optional override from config.json
+  kconnect_metrics_image = coalesce(try(local.config.kconnect_metrics_image, null), local.kconnect_metrics_fallback_image)
+
+  kconnect_log_retention_days = try(local.kconnect.log_retention_days, 14)
 }
 
 data "aws_ssm_parameter" "ecs_cluster_runtime" {
@@ -42,13 +49,10 @@ resource "aws_iam_role" "task_execution" {
   tags               = local.tags
 }
 
-# Attach the AWS managed policy for ECR/Logs
 resource "aws_iam_role_policy_attachment" "task_exec_attach" {
   role       = aws_iam_role.task_execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
-
-# Optional: user can attach more permissions via inline JSON policy in config later
 
 data "aws_iam_policy_document" "task_assume" {
   statement {
@@ -73,8 +77,6 @@ resource "aws_cloudwatch_log_group" "kconnect" {
   retention_in_days = local.kconnect_log_retention_days
   tags              = local.tags
 }
-
-data "aws_region" "current" {}
 
 # ---------- ECS Service ----------
 resource "aws_ecs_service" "kconnect" {
@@ -104,25 +106,28 @@ resource "aws_ecs_task_definition" "kconnect" {
   family                   = local.kconnect_service_name
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = tostring(local.kconnect_cpu)
-  memory                   = tostring(local.kconnect_memory)
+  cpu                      = tostring(local.kconnect_cpu)    # 1024
+  memory                   = tostring(local.kconnect_memory) # 2048
   execution_role_arn       = aws_iam_role.task_execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
   container_definitions = jsonencode([
     {
       name      = "kconnect"
-      image     = try(local.cfg.kconnect_image, "debezium/connect:2.7")
+      image     = coalesce(local.kconnect_image, "debezium/connect:2.7")
       essential = true
 
       portMappings = [
         {
-          containerPort = try(local.cfg.kconnect_port, 8083)
+          containerPort = local.kconnect_port # 8083
+          protocol      = "tcp"
+        },
+        {
+          containerPort = 9010 # JMX
           protocol      = "tcp"
         }
       ]
 
-      # --- Key part: derive env vars from existing resources/locals ---
       environment = [
         # Kafka bootstrap (Redpanda)
         {
@@ -139,22 +144,22 @@ resource "aws_ecs_task_definition" "kconnect" {
         # Kafka Connect internal topics / config
         {
           name  = "GROUP_ID"
-          value = try(local.cfg.kconnect_group_id, "clickhouse-connect")
+          value = try(local.config.kconnect_group_id, "clickhouse-connect")
         },
         {
           name  = "CONFIG_STORAGE_TOPIC"
-          value = try(local.cfg.kconnect_config_topic, "kconnect-config")
+          value = try(local.config.kconnect_config_topic, "kconnect-config")
         },
         {
           name  = "OFFSET_STORAGE_TOPIC"
-          value = try(local.cfg.kconnect_offset_topic, "kconnect-offsets")
+          value = try(local.config.kconnect_offset_topic, "kconnect-offsets")
         },
         {
           name  = "STATUS_STORAGE_TOPIC"
-          value = try(local.cfg.kconnect_status_topic, "kconnect-status")
+          value = try(local.config.kconnect_status_topic, "kconnect-status")
         },
 
-        # JSON converters (no schemas) – easy for ClickHouse ingestion
+        # JSON converters (no schemas)
         {
           name  = "KEY_CONVERTER"
           value = "org.apache.kafka.connect.json.JsonConverter"
@@ -174,6 +179,19 @@ resource "aws_ecs_task_definition" "kconnect" {
         {
           name  = "ENABLE_DEBEZIUM_SCRIPTING"
           value = "true"
+        },
+
+        # --- Enable JMX for Kafka Connect ---
+        {
+          name = "KAFKA_JMX_OPTS"
+          value = join(" ", [
+            "-Dcom.sun.management.jmxremote",
+            "-Dcom.sun.management.jmxremote.local.only=false",
+            "-Dcom.sun.management.jmxremote.authenticate=false",
+            "-Dcom.sun.management.jmxremote.ssl=false",
+            "-Dcom.sun.management.jmxremote.port=9010",
+            "-Djava.rmi.server.hostname=0.0.0.0"
+          ])
         }
       ]
 
@@ -181,8 +199,29 @@ resource "aws_ecs_task_definition" "kconnect" {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.kconnect.name
-          awslogs-region        = data.aws_region.current.name
+          awslogs-region        = data.aws_region.current.id
           awslogs-stream-prefix = "ecs"
+        }
+      }
+    },
+    {
+      name      = "kconnect-metrics"
+      image     = coalesce(local.kconnect_metrics_image, "usekarma/kconnect-jmx-exporter:latest")
+      essential = false
+
+      portMappings = [
+        {
+          containerPort = 9404 # Prometheus will scrape here
+          protocol      = "tcp"
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.kconnect.name
+          awslogs-region        = data.aws_region.current.id
+          awslogs-stream-prefix = "ecs-metrics"
         }
       }
     }
