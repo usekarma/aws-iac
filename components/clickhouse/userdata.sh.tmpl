@@ -340,6 +340,8 @@ scrape_configs:
           - 'kconnect-metrics.internal:9404'
         labels: { service: 'kconnect' }
 
+YAML
+
 cat >/etc/systemd/system/prometheus.service <<'EOF'
 [Unit]
 Description=Prometheus
