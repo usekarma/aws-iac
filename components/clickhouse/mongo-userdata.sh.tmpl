@@ -182,6 +182,41 @@ mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" --eval \
 mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" --eval "db.adminCommand({ping:1})" || true
 systemctl status mongod --no-pager || true
 
+# ---------------- Mongo bootstrap: DB, collection, CDC user ---------------
+cat >/root/mongo-bootstrap.js <<'EOF_JS'
+(function() {
+  const dbName   = "sales";
+  const collName = "orders";
+  const cdcUser  = "cdc_user";
+  const cdcPwd   = "supersecret";  // TODO: parameterize / pull from SSM
+
+  print("[mongo-bootstrap] Using db: " + dbName);
+  const appDb   = db.getSiblingDB(dbName);
+  const adminDb = db.getSiblingDB("admin");
+
+  // Collection creation
+  const existingCollections = appDb.getCollectionNames();
+  if (!existingCollections.includes(collName)) {
+    print("[mongo-bootstrap] Creating collection: " + collName);
+    appDb.createCollection(collName);
+  } else {
+    print("[mongo-bootstrap] Collection already exists: " + collName);
+  }
+
+  // Indexes
+  try {
+    print("[mongo-bootstrap] Ensuring index on orders(customer_id)...");
+    appDb[collName].createIndex({ customer_id: 1 });
+  } catch (e) {
+    print("[mongo-bootstrap] Failed to create index on " + collName + ": " + e);
+  }
+
+  print("[mongo-bootstrap] Done.");
+})();
+EOF_JS
+
+mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" /root/mongo-bootstrap.js || true
+
 # ---------------- Exporters (Mongo & Node) ---------------
 # Detect arch for GitHub release assets
 ARCH="amd64"

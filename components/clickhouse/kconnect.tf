@@ -14,8 +14,10 @@ locals {
 
   kconnect       = try(local.config.kconnect, {})
   kconnect_name  = try(local.kconnect.name, "kconnect")
-  kconnect_image = try(local.kconnect.image, null)
+  kconnect_image = try(local.kconnect.image, "quay.io/debezium/connect:3.3.1.Final")
   kconnect_port  = try(local.kconnect.port, 8083)
+
+  kconnect_rest_host = data.external.kconnect_private_ip.result.private_ip
 
   # Construct default ECR fallback URI dynamically
   kconnect_metrics_repo           = "clickhouse-kconnect-jmx-exporter"
@@ -41,6 +43,23 @@ data "aws_iam_policy_document" "task_execution_assume" {
     }
     actions = ["sts:AssumeRole"]
   }
+}
+
+data "external" "kconnect_private_ip" {
+  program = [
+    "bash", "-c",
+    <<-EOT
+      ip=$(aws ecs list-tasks --cluster ${local.ecs_cluster_arn} \
+            --service-name ${aws_ecs_service.kconnect.name} \
+            --query 'taskArns[0]' --output text |
+            xargs -I {} aws ecs describe-tasks \
+              --cluster ${local.ecs_cluster_arn} \
+              --tasks {} \
+              --query 'tasks[0].attachments[0].details[?name==`privateIPv4Address`].value' \
+              --output text)
+      echo "{\"private_ip\": \"$ip\"}"
+    EOT
+  ]
 }
 
 resource "aws_iam_role" "task_execution" {
@@ -114,7 +133,7 @@ resource "aws_ecs_task_definition" "kconnect" {
   container_definitions = jsonencode([
     {
       name      = "kconnect"
-      image     = coalesce(local.kconnect_image, "debezium/connect:2.7")
+      image     = local.kconnect_image
       essential = true
 
       portMappings = [
@@ -138,7 +157,7 @@ resource "aws_ecs_task_definition" "kconnect" {
         # Mongo replica set URI (for Debezium)
         {
           name  = "MONGODB_CONNECTION_STRING"
-          value = "mongodb://${aws_instance.mongo[0].private_ip}:${local.mongo_port}/?replicaSet=rs0"
+          value = local.mongo_connection_string
         },
 
         # Kafka Connect internal topics / config
@@ -180,6 +199,11 @@ resource "aws_ecs_task_definition" "kconnect" {
           name  = "ENABLE_DEBEZIUM_SCRIPTING"
           value = "true"
         },
+        {
+          name  = "REST_PORT"
+          value = tostring(local.kconnect_port)
+        },
+
 
         # --- Enable JMX for Kafka Connect ---
         {
@@ -228,4 +252,36 @@ resource "aws_ecs_task_definition" "kconnect" {
   ])
 
   tags = local.tags
+}
+
+resource "null_resource" "mongo_cdc_connector_apply" {
+  # Wait for these to exist before trying to hit Connect
+  depends_on = [
+    aws_ecs_service.kconnect, # your Fargate Connect service
+    aws_instance.mongo,       # Mongo EC2
+    local_file.mongo_cdc_connector
+  ]
+
+  # Re-run whenever config or target host changes
+  triggers = {
+    connector_hash = sha1(local.mongo_cdc_connector_json)
+    rest_host      = local.kconnect_rest_host
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -euo pipefail
+      echo "Applying Debezium Mongo connector: mongo-cdc-sales-orders to ${local.kconnect_rest_host}..."
+
+      # Use PUT so it's idempotent: create or update connector config in one shot
+      curl -sS -X PUT "http://${local.kconnect_rest_host}:8083/connectors/mongo-cdc-sales-orders/config" \
+        -H "Content-Type: application/json" \
+        --data-binary "@${local_file.mongo_cdc_connector.filename}"
+
+      echo
+      echo "Checking connector status..."
+      curl -sS "http://${local.kconnect_rest_host}:8083/connectors/mongo-cdc-sales-orders/status" || true
+      echo
+    EOT
+  }
 }

@@ -12,11 +12,31 @@ locals {
   mongo_nodeexp_ver   = try(local.config.mongo_nodeexp_ver, "1.8.2")
   mongo_nodeexp_port  = try(local.config.mongo_node_port, 9100)
 
+  mongo_connection_string = "mongodb://${aws_instance.mongo[0].private_ip}:${local.mongo_port}/?replicaSet=rs0"
+
   # Which SGs may connect to Mongo? (e.g., Kafka Connect SG, ClickHouse SG)
-  mongo_allowed_sg_ids = toset(try(local.config.mongo_allowed_security_group_ids, []))
+  mongo_allowed_sg_ids = toset(
+    concat(
+      try(local.config.mongo_allowed_security_group_ids, []),
+      [local.vpc.default_sg_id]
+    )
+  )
+
+  # Render the connector JSON from template
+  mongo_cdc_connector_json = templatefile(
+    "${path.module}/mongo-cdc-sales-orders-connector.json.tmpl",
+    {
+      mongo_connection_string = local.mongo_connection_string
+    }
+  )
 
   # Optional CIDR allowlist (use sparingly; prefer SG-to-SG)
   mongo_allowed_cidrs = toset(try(local.config.mongo_allowed_cidrs, []))
+}
+
+resource "local_file" "mongo_cdc_connector" {
+  content  = local.mongo_cdc_connector_json
+  filename = "${path.module}/.generated.mongo-cdc-sales-orders.json"
 }
 
 resource "aws_security_group" "mongo" {

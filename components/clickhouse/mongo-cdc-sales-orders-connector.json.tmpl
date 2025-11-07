@@ -1,0 +1,19 @@
+{
+  "name": "mongo-cdc-sales-orders",
+  "config": {
+    "connector.class": "io.debezium.connector.mongodb.MongoDbConnector",
+    "tasks.max": "1",
+
+    "mongodb.connection.string": "${mongo_connection_string}",
+
+    "topic.prefix": "sales",
+    "collection.include.list": "sales.orders",
+
+    "snapshot.mode": "initial",
+
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
+  }
+}
