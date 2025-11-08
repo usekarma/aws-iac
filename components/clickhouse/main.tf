@@ -162,9 +162,8 @@ resource "aws_vpc_security_group_ingress_rule" "ssm_endpoints_from_clickhouse" {
 
 # Allow from permitted SGs on HTTP + (optional) TCP
 resource "aws_vpc_security_group_ingress_rule" "from_sgs_http" {
-  for_each                     = local.allowed_sg_ids
   security_group_id            = aws_security_group.clickhouse.id
-  referenced_security_group_id = each.value
+  referenced_security_group_id = local.vpc_sg_id
   ip_protocol                  = "tcp"
   from_port                    = local.clickhouse_http_port
   to_port                      = local.clickhouse_http_port
@@ -172,9 +171,8 @@ resource "aws_vpc_security_group_ingress_rule" "from_sgs_http" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "from_sgs_tcp" {
-  for_each                     = local.allowed_sg_ids
   security_group_id            = aws_security_group.clickhouse.id
-  referenced_security_group_id = each.value
+  referenced_security_group_id = local.vpc_sg_id
   ip_protocol                  = "tcp"
   from_port                    = local.clickhouse_tcp_port
   to_port                      = local.clickhouse_tcp_port
@@ -227,7 +225,7 @@ resource "aws_instance" "clickhouse" {
     http_put_response_hop_limit = 2
   }
 
-  user_data_base64 = base64encode(templatefile("${path.module}/userdata.sh.tmpl", {
+  user_data_base64 = base64encode(templatefile("${path.module}/tmpl/userdata.sh.tmpl", {
     # Leave blank to auto-detect largest non-root NVMe (Nitro-safe)
     EBS_DEVICE  = "" # e.g., "/dev/nvme1n1" to pin explicitly
     MOUNT_POINT = "/var/lib/clickhouse"
@@ -257,6 +255,9 @@ resource "aws_instance" "clickhouse" {
     REDPANDA_PARTITIONS = local.redpanda_partitions
     REDPANDA_RETMS      = local.redpanda_retention
 
+    MONGO_CONNECTION_STRING = local.mongo_connection_string
+    KCONNECT_HOST           = local.kconnect_rest_host
+
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id
   }))
@@ -266,12 +267,27 @@ resource "aws_instance" "clickhouse" {
     Nickname = var.nickname
     Role     = "clickhouse"
   })
+
+  depends_on = [
+    aws_instance.mongo,
+    aws_instance.redpanda,
+    aws_ecs_service.kconnect,
+    aws_s3_object.kconnect_mongo_bootstrap
+  ]
 }
 
 resource "aws_volume_attachment" "data" {
   device_name = "/dev/xvdb"
   volume_id   = aws_ebs_volume.data.id
   instance_id = aws_instance.clickhouse.id
+}
+
+resource "aws_s3_object" "kconnect_mongo_bootstrap" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/scripts/kconnect-mongo-bootstrap.sh"
+  source = "${path.module}/scripts/kconnect-mongo-bootstrap.sh"
+  etag   = filemd5("${path.module}/scripts/kconnect-mongo-bootstrap.sh")
+  tags = local.tags
 }
 
 resource "aws_ssm_parameter" "runtime" {

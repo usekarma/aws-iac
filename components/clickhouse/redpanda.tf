@@ -48,7 +48,7 @@ resource "aws_vpc_security_group_ingress_rule" "ssm_endpoints_from_redpanda" {
 resource "aws_vpc_security_group_ingress_rule" "redpanda_from_clickhouse_9092" {
   count                        = local.redpanda_enable ? 1 : 0
   security_group_id            = aws_security_group.redpanda[0].id
-  referenced_security_group_id = aws_security_group.clickhouse.id
+  referenced_security_group_id = local.vpc_sg_id
   ip_protocol                  = "tcp"
   from_port                    = local.redpanda_port
   to_port                      = local.redpanda_port
@@ -121,7 +121,7 @@ resource "aws_instance" "redpanda" {
     http_endpoint = "enabled"
   }
 
-  user_data_base64 = base64encode(templatefile("${path.module}/redpanda-userdata.sh.tmpl", {
+  user_data_base64 = base64encode(templatefile("${path.module}/tmpl/redpanda-userdata.sh.tmpl", {
     # Leave blank to auto-detect largest non-root NVMe (Nitro-safe)
     EBS_DEVICE  = "" # e.g., "/dev/nvme1n1" to pin explicitly
     MOUNT_POINT = "/var/lib/redpanda"

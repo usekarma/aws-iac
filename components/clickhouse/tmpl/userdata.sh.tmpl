@@ -439,6 +439,26 @@ EOF
 
 systemctl restart clickhouse-server || true
 
+# ---------- Optional: run Kafka Connect bootstrap script from S3 ----------
+
+if [[ -n "${KCONNECT_HOST}" && -n "${MONGO_CONNECTION_STRING}" ]]; then
+  echo "[userdata] Fetching Kafka Connect bootstrap script..."
+  aws s3 cp "s3://${BACKUP_BUCKET}/clickhouse/scripts/kconnect-mongo-bootstrap.sh" /root/kconnect-mongo-bootstrap.sh || {
+    echo "[userdata] WARN: could not fetch kconnect-mongo-bootstrap.sh from S3"
+  }
+  if [[ -s /root/kconnect-mongo-bootstrap.sh ]]; then
+    chmod +x /root/kconnect-mongo-bootstrap.sh || true
+    echo "[userdata] Running Kafka Connect bootstrap..."
+    KCONNECT_HOST="${KCONNECT_HOST}" \
+    MONGO_CONNECTION_STRING="${MONGO_CONNECTION_STRING}" \
+      /root/kconnect-mongo-bootstrap.sh || echo "[userdata] WARN: kconnect bootstrap failed (non-fatal)"
+  else
+    echo "[userdata] WARN: kconnect bootstrap script missing or empty; skipping."
+  fi
+else
+  echo "[userdata] KCONNECT_HOST or MONGO_CONNECTION_STRING not set; skipping Kafka Connect bootstrap."
+fi
+
 # ---- Quick logs / ports ----
 ss -lntp | egrep '(:9090|:3000|:9100|:9363)' || true
 echo "[userdata:obs] Prometheus=9090 Grafana=3000 NodeExp=9100 CH-metrics=9363 configured"

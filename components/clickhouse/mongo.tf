@@ -15,28 +15,26 @@ locals {
   mongo_connection_string = "mongodb://${aws_instance.mongo[0].private_ip}:${local.mongo_port}/?replicaSet=rs0"
 
   # Which SGs may connect to Mongo? (e.g., Kafka Connect SG, ClickHouse SG)
-  mongo_allowed_sg_ids = toset(
-    concat(
-      try(local.config.mongo_allowed_security_group_ids, []),
-      [local.vpc.default_sg_id]
-    )
-  )
+  # Base SGs: ClickHouse + kconnect
+  mongo_base_sg_map = {
+    clickhouse = aws_security_group.clickhouse.id
+    kconnect   = aws_security_group.kconnect.id
+  }
 
-  # Render the connector JSON from template
-  mongo_cdc_connector_json = templatefile(
-    "${path.module}/mongo-cdc-sales-orders-connector.json.tmpl",
-    {
-      mongo_connection_string = local.mongo_connection_string
-    }
+  # Extra SGs from config (list of IDs) → turn into a map: id => id
+  mongo_extra_sg_map = {
+    for sg_id in try(local.config.mongo_allowed_security_group_ids, []) :
+    sg_id => sg_id
+  }
+
+  # Final map of all allowed SGs
+  mongo_allowed_sg_map = merge(
+    local.mongo_base_sg_map,
+    local.mongo_extra_sg_map
   )
 
   # Optional CIDR allowlist (use sparingly; prefer SG-to-SG)
   mongo_allowed_cidrs = toset(try(local.config.mongo_allowed_cidrs, []))
-}
-
-resource "local_file" "mongo_cdc_connector" {
-  content  = local.mongo_cdc_connector_json
-  filename = "${path.module}/.generated.mongo-cdc-sales-orders.json"
 }
 
 resource "aws_security_group" "mongo" {
@@ -62,9 +60,9 @@ resource "aws_security_group" "mongo" {
 
 # Allow from permitted SGs (Kafka Connect, ClickHouse if needed) on 27017
 resource "aws_vpc_security_group_ingress_rule" "mongo_from_sgs_27017" {
-  for_each                     = local.mongo_enable ? local.mongo_allowed_sg_ids : toset([])
+  count                        = local.mongo_enable ? 1 : 0
   security_group_id            = aws_security_group.mongo[0].id
-  referenced_security_group_id = each.value
+  referenced_security_group_id = local.vpc_sg_id
   ip_protocol                  = "tcp"
   from_port                    = local.mongo_port
   to_port                      = local.mongo_port
@@ -136,7 +134,7 @@ resource "aws_instance" "mongo" {
     http_endpoint = "enabled"
   }
 
-  user_data_base64 = base64encode(templatefile("${path.module}/mongo-userdata.sh.tmpl", {
+  user_data_base64 = base64encode(templatefile("${path.module}/tmpl/mongo-userdata.sh.tmpl", {
     # Leave blank to auto-detect largest non-root NVMe (Nitro-safe)
     EBS_DEVICE  = "" # e.g., "/dev/nvme1n1" to pin explicitly
     MOUNT_POINT = "/var/lib/mongo"

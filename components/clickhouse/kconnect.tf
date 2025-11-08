@@ -12,12 +12,13 @@ locals {
   kconnect_platform_version = try(local.config.kconnect_platform_version, "LATEST")
   kconnect_assign_public_ip = try(local.config.kconnect_assign_public_ip, false)
 
-  kconnect       = try(local.config.kconnect, {})
-  kconnect_name  = try(local.kconnect.name, "kconnect")
-  kconnect_image = try(local.kconnect.image, "quay.io/debezium/connect:3.3.1.Final")
-  kconnect_port  = try(local.kconnect.port, 8083)
+  kconnect           = try(local.config.kconnect, {})
+  kconnect_name      = try(local.kconnect.name, "kconnect")
+  kconnect_image     = try(local.kconnect.image, "quay.io/debezium/connect:3.3.1.Final")
+  kconnect_rest_port = try(local.kconnect.port, 8083)
 
-  kconnect_rest_host = data.external.kconnect_private_ip.result.private_ip
+  kconnect_rest_host    = "${aws_service_discovery_service.kconnect.name}.${aws_service_discovery_private_dns_namespace.kconnect.name}"
+  kconnect_metrics_port = try(local.kconnect.port, 9404)
 
   # Construct default ECR fallback URI dynamically
   kconnect_metrics_repo           = "clickhouse-kconnect-jmx-exporter"
@@ -45,21 +46,38 @@ data "aws_iam_policy_document" "task_execution_assume" {
   }
 }
 
-data "external" "kconnect_private_ip" {
-  program = [
-    "bash", "-c",
-    <<-EOT
-      ip=$(aws ecs list-tasks --cluster ${local.ecs_cluster_arn} \
-            --service-name ${aws_ecs_service.kconnect.name} \
-            --query 'taskArns[0]' --output text |
-            xargs -I {} aws ecs describe-tasks \
-              --cluster ${local.ecs_cluster_arn} \
-              --tasks {} \
-              --query 'tasks[0].attachments[0].details[?name==`privateIPv4Address`].value' \
-              --output text)
-      echo "{\"private_ip\": \"$ip\"}"
-    EOT
-  ]
+resource "aws_security_group" "kconnect" {
+  name_prefix = "${local.kconnect_service_name}-sg-"
+  description = "Security group for ${local.kconnect_service_name} ECS service"
+  vpc_id      = local.vpc.vpc_id
+
+  # Outbound: allow everything (typical for ECS tasks)
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Inbound: kconnect REST port (8083) from the VPC default SG
+  ingress {
+    description     = "Allow kconnect REST (8083) from VPC default SG"
+    from_port       = local.kconnect_rest_port
+    to_port         = local.kconnect_rest_port
+    protocol        = "tcp"
+    security_groups = [local.vpc.default_sg_id]
+  }
+
+  # Inbound: metrics port (9404) (Prometheus, etc.)
+  ingress {
+    description     = "Allow kconnect metrics (9404) from ClickHouse SG"
+    from_port       = local.kconnect_metrics_port
+    to_port         = local.kconnect_metrics_port
+    protocol        = "tcp"
+    security_groups = [aws_security_group.clickhouse.id]
+  }
+
+  tags = local.tags
 }
 
 resource "aws_iam_role" "task_execution" {
@@ -107,8 +125,12 @@ resource "aws_ecs_service" "kconnect" {
 
   network_configuration {
     subnets          = local.vpc.private_subnet_ids
-    security_groups  = [local.vpc.default_sg_id]
+    security_groups  = [local.vpc.default_sg_id, aws_security_group.kconnect.id]
     assign_public_ip = local.kconnect_assign_public_ip
+  }
+
+  service_registries {
+    registry_arn = aws_service_discovery_service.kconnect.arn
   }
 
   task_definition = aws_ecs_task_definition.kconnect.arn
@@ -138,7 +160,7 @@ resource "aws_ecs_task_definition" "kconnect" {
 
       portMappings = [
         {
-          containerPort = local.kconnect_port # 8083
+          containerPort = local.kconnect_rest_port # 8083
           protocol      = "tcp"
         },
         {
@@ -201,9 +223,12 @@ resource "aws_ecs_task_definition" "kconnect" {
         },
         {
           name  = "REST_PORT"
-          value = tostring(local.kconnect_port)
+          value = tostring(local.kconnect_rest_port)
         },
-
+        {
+          name  = "KAFKA_HEAP_OPTS"
+          value = "-Xms512m -Xmx1024m"
+        },
 
         # --- Enable JMX for Kafka Connect ---
         {
@@ -254,34 +279,32 @@ resource "aws_ecs_task_definition" "kconnect" {
   tags = local.tags
 }
 
-resource "null_resource" "mongo_cdc_connector_apply" {
-  # Wait for these to exist before trying to hit Connect
-  depends_on = [
-    aws_ecs_service.kconnect, # your Fargate Connect service
-    aws_instance.mongo,       # Mongo EC2
-    local_file.mongo_cdc_connector
-  ]
+# Private DNS namespace for service discovery
+resource "aws_service_discovery_private_dns_namespace" "kconnect" {
+  name        = "svc.usekarma.local"
+  description = "Service discovery namespace for data-plane services"
+  vpc         = local.vpc_id
 
-  # Re-run whenever config or target host changes
-  triggers = {
-    connector_hash = sha1(local.mongo_cdc_connector_json)
-    rest_host      = local.kconnect_rest_host
+  tags = merge(local.tags, {
+    Name = "svc.usekarma.local"
+  })
+}
+
+resource "aws_service_discovery_service" "kconnect" {
+  name = "kconnect"
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.kconnect.id
+
+    dns_records {
+      type = "A"
+      ttl  = 10
+    }
+
+    routing_policy = "MULTIVALUE"
   }
 
-  provisioner "local-exec" {
-    command = <<-EOT
-      set -euo pipefail
-      echo "Applying Debezium Mongo connector: mongo-cdc-sales-orders to ${local.kconnect_rest_host}..."
-
-      # Use PUT so it's idempotent: create or update connector config in one shot
-      curl -sS -X PUT "http://${local.kconnect_rest_host}:8083/connectors/mongo-cdc-sales-orders/config" \
-        -H "Content-Type: application/json" \
-        --data-binary "@${local_file.mongo_cdc_connector.filename}"
-
-      echo
-      echo "Checking connector status..."
-      curl -sS "http://${local.kconnect_rest_host}:8083/connectors/mongo-cdc-sales-orders/status" || true
-      echo
-    EOT
-  }
+  tags = merge(local.tags, {
+    Name = "kconnect-sd"
+  })
 }

@@ -229,3 +229,70 @@ FROM kafka_src_norm;
 - PLAINTEXT is fine for VPC-only PoC; switch to TLS/SASL for real environments
 
 ---
+
+---
+
+# 8) End-to-End Validation & Observability
+
+After deployment, the following order verifies the CDC pipeline end-to-end:
+
+### Step 1 — Infrastructure Verification
+```bash
+terraform output
+aws ssm describe-parameters --parameter-filters "Key=Name,Values=/iac/*/runtime"
+```
+Confirm that `mongo`, `redpanda`, and `clickhouse` runtime JSON exist.
+
+### Step 2 — Service Health Checks
+```bash
+# Mongo
+aws ssm start-session --target <mongo_instance_id>
+mongosh "mongodb://localhost:27017" --eval "rs.status()"
+
+# Redpanda
+aws ssm start-session --target <redpanda_instance_id>
+rpk topic list
+
+# ClickHouse
+aws ssm start-session --target <clickhouse_instance_id>
+clickhouse-client -q "SELECT version()"
+```
+
+### Step 3 — Grafana & Prometheus
+Grafana URL (via ALB): `http://<alb_dns>:3000`  
+User: `admin` / `admin` (default)
+
+Dashboards auto-imported by **grafana-bootstrap.sh**:
+- Node Exporter Full
+- Prometheus Overview
+- MongoDB Exporter (Percona)
+- Redpanda Metrics
+- ClickHouse Internal Prometheus
+
+### Step 4 — CDC Flow Test
+```bash
+# Insert traffic
+./seed-sales-orders.sh 20
+
+# Verify flow
+rpk topic consume mongo.cdc.appdb.orders --num 3
+rpk topic consume ch_ingest_normalized --num 3
+clickhouse-client -q "SELECT count(), max(event_time) FROM events"
+```
+
+### Step 5 — Backup Test
+```bash
+aws s3 ls s3://<backup-bucket>/<prefix>/ --recursive
+systemctl list-timers | grep backup
+```
+
+### Expected outcome
+- Mongo insertions trigger Debezium CDC events
+- Redpanda topics receive data instantly
+- ClickHouse table `events` updates in real time
+- Grafana dashboards visualize host + broker metrics
+- Backups visible in S3 prefix after 24h timer
+
+---
+
+_Last updated: 2025-11-08 16:09 _
