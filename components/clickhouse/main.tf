@@ -272,7 +272,8 @@ resource "aws_instance" "clickhouse" {
     aws_instance.mongo,
     aws_instance.redpanda,
     aws_ecs_service.kconnect,
-    aws_s3_object.kconnect_mongo_bootstrap
+    aws_s3_object.kconnect_mongo_bootstrap,
+    aws_s3_object.kafka_clickhouse_bootstrap
   ]
 }
 
@@ -287,6 +288,14 @@ resource "aws_s3_object" "kconnect_mongo_bootstrap" {
   key    = "${local.backup_prefix}/scripts/kconnect-mongo-bootstrap.sh"
   source = "${path.module}/scripts/kconnect-mongo-bootstrap.sh"
   etag   = filemd5("${path.module}/scripts/kconnect-mongo-bootstrap.sh")
+  tags = local.tags
+}
+
+resource "aws_s3_object" "kafka_clickhouse_bootstrap" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/scripts/kafka-clickhouse-bootstrap.sh"
+  source = "${path.module}/scripts/kafka-clickhouse-bootstrap.sh"
+  etag   = filemd5("${path.module}/scripts/kafka-clickhouse-bootstrap.sh")
   tags = local.tags
 }
 

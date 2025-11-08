@@ -443,7 +443,7 @@ systemctl restart clickhouse-server || true
 
 if [[ -n "${KCONNECT_HOST}" && -n "${MONGO_CONNECTION_STRING}" ]]; then
   echo "[userdata] Fetching Kafka Connect bootstrap script..."
-  aws s3 cp "s3://${BACKUP_BUCKET}/clickhouse/scripts/kconnect-mongo-bootstrap.sh" /root/kconnect-mongo-bootstrap.sh || {
+  aws s3 cp "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/scripts/kconnect-mongo-bootstrap.sh" /root/kconnect-mongo-bootstrap.sh || {
     echo "[userdata] WARN: could not fetch kconnect-mongo-bootstrap.sh from S3"
   }
   if [[ -s /root/kconnect-mongo-bootstrap.sh ]]; then
@@ -458,6 +458,11 @@ if [[ -n "${KCONNECT_HOST}" && -n "${MONGO_CONNECTION_STRING}" ]]; then
 else
   echo "[userdata] KCONNECT_HOST or MONGO_CONNECTION_STRING not set; skipping Kafka Connect bootstrap."
 fi
+
+aws s3 cp "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/scripts/kafka-clickhouse-bootstrap.sh" /usr/local/bin/kafka-clickhouse-bootstrap.sh
+chmod +x /usr/local/bin/kafka-clickhouse-bootstrap.sh
+export REDPANDA_HOST="${REDPANDA_HOST}"
+/usr/local/bin/kafka-clickhouse-bootstrap.sh > /var/log/kafka_clickhouse_bootstrap.log 2>&1
 
 # ---- Quick logs / ports ----
 ss -lntp | egrep '(:9090|:3000|:9100|:9363)' || true
