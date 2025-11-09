@@ -173,10 +173,71 @@ if ! command -v mongosh >/dev/null 2>&1; then
   fi
 fi
 
-# Initiate single-node replica set using the instance's private IP
+# ---------- Robust single-node replica set init ----------
 PRIV_IP="$(curl -fsS http://169.254.169.254/latest/meta-data/local-ipv4 || hostname -I | awk '{print $1}')"
-mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" --eval \
-  "try{rs.status()}catch(e){rs.initiate({_id:'$${RS_NAME}', members:[{_id:0, host:'$${PRIV_IP}:$${MONGO_PORT}'}]})}" || true
+
+# 1) If there is no replset config yet, call rs.initiate().
+mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}/admin?directConnection=true" <<EOF_RS_INIT || true
+(function() {
+  print("[userdata-mongo] Replica set bootstrap...");
+  const hello = db.hello();
+  printjson(hello);
+
+  if (hello.isWritablePrimary === true) {
+    print("[userdata-mongo] Node is already PRIMARY; skipping rs.initiate().");
+    return;
+  }
+
+  let needsInitiate = false;
+  try {
+    const st = rs.status();
+    print("[userdata-mongo] rs.status():");
+    printjson(st);
+  } catch (e) {
+    print("[userdata-mongo] rs.status() error: " + e);
+    // Code 94 = No replset config has been received
+    if (e.code === 94 || /no replset config has been received/i.test(String(e))) {
+      needsInitiate = true;
+    }
+  }
+
+  if (needsInitiate) {
+    print("[userdata-mongo] Calling rs.initiate() for single-node RS...");
+    try {
+      rs.initiate({
+        _id: "$${RS_NAME}",
+        members: [{ _id: 0, host: "$${PRIV_IP}:$${MONGO_PORT}" }]
+      });
+      print("[userdata-mongo] rs.initiate() called.");
+    } catch (e) {
+      print("[userdata-mongo] rs.initiate() failed: " + e);
+    }
+  } else {
+    print("[userdata-mongo] Using existing replset config; no rs.initiate().");
+  }
+})();
+EOF_RS_INIT
+
+# 2) Wait until this node is PRIMARY (or time out) before continuing.
+mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}/admin?directConnection=true" <<'EOF_RS_WAIT' || true
+(function() {
+  print("[userdata-mongo] Waiting for node to become PRIMARY...");
+  for (let i = 0; i < 60; i++) { // up to ~60 seconds
+    try {
+      const h = db.hello();
+      if (h.isWritablePrimary === true) {
+        print("[userdata-mongo] Node is PRIMARY; continuing.");
+        return;
+      }
+      print("[userdata-mongo] Not PRIMARY yet (isWritablePrimary=" + h.isWritablePrimary + "); sleeping 1s...");
+    } catch (e) {
+      print("[userdata-mongo] db.hello() error while waiting: " + e);
+    }
+    sleep(1000);
+  }
+  print("[userdata-mongo] WARNING: node did not become PRIMARY within timeout; continuing anyway.");
+})();
+EOF_RS_WAIT
 
 # Health checks
 mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" --eval "db.adminCommand({ping:1})" || true
@@ -331,6 +392,13 @@ TMR
 else
   echo "[userdata-mongo] Skipping S3 backups (need AWS_REGION/BACKUP_BUCKET/BACKUP_PREFIX)"
 fi
+
+# --- Seed Mongo sales.orders with traffic for CDC ---
+
+echo "[userdata] downloading seed-sales-orders.sh from S3..."
+aws s3 cp "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/scripts/seed-sales-orders.sh" /usr/local/bin/seed-sales-orders.sh
+
+chmod +x /usr/local/bin/seed-sales-orders.sh
 
 # ---------------- Marker -------------------------------
 echo "$(date -u +%FT%TZ) BOOTSTRAP_OK" > "$MARKER_FILE"

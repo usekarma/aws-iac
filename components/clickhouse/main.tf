@@ -257,6 +257,7 @@ resource "aws_instance" "clickhouse" {
 
     MONGO_CONNECTION_STRING = local.mongo_connection_string
     KCONNECT_HOST           = local.kconnect_rest_host
+    GRAFANA_DASHBOARD_KEY   = "${local.backup_prefix}/dashboards/mongo-clickhouse-sales-orders.json"
 
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id
@@ -272,8 +273,12 @@ resource "aws_instance" "clickhouse" {
     aws_instance.mongo,
     aws_instance.redpanda,
     aws_ecs_service.kconnect,
+    aws_s3_object.prometheus_grafana_bootstrap,
     aws_s3_object.kconnect_mongo_bootstrap,
-    aws_s3_object.kafka_clickhouse_bootstrap
+    aws_s3_object.kafka_clickhouse_bootstrap,
+    aws_s3_object.grafana_bootstrap,
+    aws_s3_object.seed_sales_orders,
+    aws_s3_object.sales_dashboard
   ]
 }
 
@@ -283,12 +288,20 @@ resource "aws_volume_attachment" "data" {
   instance_id = aws_instance.clickhouse.id
 }
 
+resource "aws_s3_object" "prometheus_grafana_bootstrap" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/scripts/prometheus-grafana-bootstrap.sh"
+  source = "${path.module}/scripts/prometheus-grafana-bootstrap.sh"
+  etag   = filemd5("${path.module}/scripts/prometheus-grafana-bootstrap.sh")
+  tags   = local.tags
+}
+
 resource "aws_s3_object" "kconnect_mongo_bootstrap" {
   bucket = local.backup_bucket_name
   key    = "${local.backup_prefix}/scripts/kconnect-mongo-bootstrap.sh"
   source = "${path.module}/scripts/kconnect-mongo-bootstrap.sh"
   etag   = filemd5("${path.module}/scripts/kconnect-mongo-bootstrap.sh")
-  tags = local.tags
+  tags   = local.tags
 }
 
 resource "aws_s3_object" "kafka_clickhouse_bootstrap" {
@@ -296,7 +309,31 @@ resource "aws_s3_object" "kafka_clickhouse_bootstrap" {
   key    = "${local.backup_prefix}/scripts/kafka-clickhouse-bootstrap.sh"
   source = "${path.module}/scripts/kafka-clickhouse-bootstrap.sh"
   etag   = filemd5("${path.module}/scripts/kafka-clickhouse-bootstrap.sh")
-  tags = local.tags
+  tags   = local.tags
+}
+
+resource "aws_s3_object" "grafana_bootstrap" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/scripts/grafana-bootstrap.sh"
+  source = "${path.module}/scripts/grafana-bootstrap.sh"
+  etag   = filemd5("${path.module}/scripts/grafana-bootstrap.sh")
+  tags   = local.tags
+}
+
+resource "aws_s3_object" "seed_sales_orders" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/scripts/seed-sales-orders.sh"
+  source = "${path.module}/scripts/seed-sales-orders.sh"
+  etag   = filemd5("${path.module}/scripts/seed-sales-orders.sh")
+  tags   = local.tags
+}
+
+resource "aws_s3_object" "sales_dashboard" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/dashboards/mongo-clickhouse-sales-orders.json"
+  source = "${path.module}/dashboards/mongo-clickhouse-sales-orders.json"
+  etag   = filemd5("${path.module}/dashboards/mongo-clickhouse-sales-orders.json")
+  tags   = local.tags
 }
 
 resource "aws_ssm_parameter" "runtime" {
