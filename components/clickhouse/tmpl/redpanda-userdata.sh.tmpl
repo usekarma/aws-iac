@@ -7,8 +7,8 @@ echo "[userdata-redpanda] start $(date -Is)"
 EBS_DEV="${EBS_DEVICE}"                   # "" => auto-pick largest non-root NVMe
 MNT="${MOUNT_POINT}"                      # e.g., "/var/lib/redpanda"
 MARKER_FILE="${MARKER_FILE}"              # e.g., "/var/local/BOOTSTRAP_OK"
-BACKUP_BUCKET="${BACKUP_BUCKET}"          # (unused here; safe)
-BACKUP_PREFIX="${BACKUP_PREFIX}"          # (unused here; safe)
+CLICKHOUSE_BUCKET="${CLICKHOUSE_BUCKET}"          # (unused here; safe)
+CLICKHOUSE_PREFIX="${CLICKHOUSE_PREFIX}"          # (unused here; safe)
 AWS_REGION="${AWS_REGION}"                # e.g., "us-east-1"
 
 # Optional boot topic args (filled by templatefile; may be empty)

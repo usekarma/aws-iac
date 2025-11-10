@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONNECTOR_JSON_PATH="/root/mongo-cdc-sales-orders.json"
+CONNECTOR_JSON_PATH="/root/mongo-cdc-sales.json"
 KCONNECT_HOST="${KCONNECT_HOST}"
 MONGO_CONNECTION_STRING="${MONGO_CONNECTION_STRING}"
 
@@ -9,15 +9,26 @@ echo "[kconnect-bootstrap] Writing Debezium Mongo connector config to ${CONNECTO
 
 cat >"${CONNECTOR_JSON_PATH}" <<EOF
 {
-  "name": "mongo-cdc-sales-orders",
+  "name": "mongo-cdc-sales",
   "config": {
     "connector.class": "io.debezium.connector.mongodb.MongoDbConnector",
     "tasks.max": "1",
 
     "mongodb.connection.string": "${MONGO_CONNECTION_STRING}",
+    "mongodb.name": "mongo",
 
-    "topic.prefix": "sales",
-    "collection.include.list": "sales.orders",
+    "database.include.list": "sales",
+    "collection.include.list": "sales.customers,sales.vendors,sales.products,sales.inventory,sales.orders",
+
+    // Debezium will normally create one topic per collection like:
+    //   mongo.sales.customers
+    //   mongo.sales.orders
+    // We use RegexRouter to funnel everything into a SINGLE topic:
+    "topic.prefix": "mongo",
+    "transforms": "route",
+    "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.route.regex": ".*",
+    "transforms.route.replacement": "mongo.sales.cdc",
 
     "snapshot.mode": "initial",
 
@@ -43,7 +54,7 @@ for i in {1..60}; do
   sleep 5
 done
 
-echo "[kconnect-bootstrap] Applying Debezium Mongo connector mongo-cdc-sales-orders..."
+echo "[kconnect-bootstrap] Applying Debezium Mongo connector mongo-cdc-sales..."
 CREATE_RESP="$(curl -sS -X POST "http://${KCONNECT_HOST}:8083/connectors" \
   -H "Content-Type: application/json" \
   --data-binary "@${CONNECTOR_JSON_PATH}" || true)"
@@ -55,11 +66,11 @@ echo "${CREATE_RESP}"
 
 echo "[kconnect-bootstrap] Checking connector status..."
 for i in {1..30}; do
-  STATUS_JSON="$(curl -sS "http://${KCONNECT_HOST}:8083/connectors/mongo-cdc-sales-orders/status" || true)"
+  STATUS_JSON="$(curl -sS "http://${KCONNECT_HOST}:8083/connectors/mongo-cdc-sales/status" || true)"
 
-  if [[ "${STATUS_JSON}" == *'"name":"mongo-cdc-sales-orders"'* ]]; then
+  if [[ "${STATUS_JSON}" == *'"name":"mongo-cdc-sales"'* ]]; then
     echo "${STATUS_JSON}"
-    echo "[kconnect-bootstrap] Connector mongo-cdc-sales-orders status retrieved."
+    echo "[kconnect-bootstrap] Connector mongo-cdc-sales status retrieved."
     exit 0
   fi
 

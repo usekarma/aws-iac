@@ -237,8 +237,8 @@ resource "aws_instance" "clickhouse" {
     CLICKHOUSE_VERSION_TRACK = local.clickhouse_version
 
     # Backups
-    BACKUP_BUCKET = local.backup_bucket_name
-    BACKUP_PREFIX = local.backup_prefix
+    CLICKHOUSE_BUCKET = local.backup_bucket_name
+    CLICKHOUSE_PREFIX = local.backup_prefix
 
     PROMETHEUS_VER = local.prometheus_ver
     NODEEXP_VER    = local.nodeexp_ver
@@ -277,7 +277,6 @@ resource "aws_instance" "clickhouse" {
     aws_s3_object.kconnect_mongo_bootstrap,
     aws_s3_object.kafka_clickhouse_bootstrap,
     aws_s3_object.grafana_bootstrap,
-    aws_s3_object.seed_sales_orders,
     aws_s3_object.sales_dashboard
   ]
 }
@@ -312,19 +311,19 @@ resource "aws_s3_object" "kafka_clickhouse_bootstrap" {
   tags   = local.tags
 }
 
+resource "aws_s3_object" "clickhouse_schema_views" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/scripts/clickhouse-schema-views.sh"
+  source = "${path.module}/scripts/clickhouse-schema-views.sh"
+  etag   = filemd5("${path.module}/scripts/clickhouse-schema-views.sh")
+  tags   = local.tags
+}
+
 resource "aws_s3_object" "grafana_bootstrap" {
   bucket = local.backup_bucket_name
   key    = "${local.backup_prefix}/scripts/grafana-bootstrap.sh"
   source = "${path.module}/scripts/grafana-bootstrap.sh"
   etag   = filemd5("${path.module}/scripts/grafana-bootstrap.sh")
-  tags   = local.tags
-}
-
-resource "aws_s3_object" "seed_sales_orders" {
-  bucket = local.backup_bucket_name
-  key    = "${local.backup_prefix}/scripts/seed-sales-orders.sh"
-  source = "${path.module}/scripts/seed-sales-orders.sh"
-  etag   = filemd5("${path.module}/scripts/seed-sales-orders.sh")
   tags   = local.tags
 }
 

@@ -7,8 +7,8 @@ echo "[userdata-mongo] start $(date -Is)"
 export EBS_DEV="${EBS_DEVICE}"                      # "" => auto-pick largest non-root NVMe
 export MNT="${MOUNT_POINT}"                         # e.g., "/var/lib/mongo"
 export MARKER_FILE="${MARKER_FILE}"                 # e.g., "/var/local/BOOTSTRAP_OK"
-export BACKUP_BUCKET="${BACKUP_BUCKET}"             # e.g., "usekarma.dev-prod"
-export BACKUP_PREFIX="${BACKUP_PREFIX}"             # e.g., "mongo"
+export CLICKHOUSE_BUCKET="${CLICKHOUSE_BUCKET}"     # e.g., "usekarma.dev-prod"
+export CLICKHOUSE_PREFIX="${CLICKHOUSE_PREFIX}"     # e.g., "mongo"
 export AWS_REGION="${AWS_REGION}"                   # e.g., "us-east-1"
 
 export MONGO_MAJOR="${MONGO_MAJOR}"
@@ -243,40 +243,30 @@ EOF_RS_WAIT
 mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" --eval "db.adminCommand({ping:1})" || true
 systemctl status mongod --no-pager || true
 
-# ---------------- Mongo bootstrap: DB, collection, CDC user ---------------
-cat >/root/mongo-bootstrap.js <<'EOF_JS'
-(function() {
-  const dbName   = "sales";
-  const collName = "orders";
-  const cdcUser  = "cdc_user";
-  const cdcPwd   = "supersecret";  // TODO: parameterize / pull from SSM
+# ---------------- Mongo restore-or-init from S3 --------------------------
+echo "[userdata-mongo] Checking S3 for existing Mongo backup..."
+LATEST_BACKUP="$(aws s3 ls "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/backups/" | awk '/dump-/ {print $4}' | sort | tail -n 1 || true)"
 
-  print("[mongo-bootstrap] Using db: " + dbName);
-  const appDb   = db.getSiblingDB(dbName);
-  const adminDb = db.getSiblingDB("admin");
+if [[ -n "$LATEST_BACKUP" ]]; then
+  echo "[userdata-mongo] Found Mongo backup in S3: $LATEST_BACKUP"
+  mkdir -p /tmp/mongo-restore
+  aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/backups/$LATEST_BACKUP/" /tmp/mongo-restore/ --recursive
+  mongorestore --gzip --drop --uri="mongodb://127.0.0.1:${MONGO_PORT}" /tmp/mongo-restore || echo "[userdata-mongo] WARNING: mongorestore failed"
+  rm -rf /tmp/mongo-restore
+  echo "[userdata-mongo] Mongo restored from S3 backup."
+else
+  echo "[userdata-mongo] No existing backup found, bootstrapping schema via init-sales-db.js..."
+  aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema/init-sales-db.js" /root/init-sales-db.js
+  if [[ -s /root/init-sales-db.js ]]; then
+    mongosh --quiet "mongodb://127.0.0.1:${MONGO_PORT}" /root/init-sales-db.js || echo "[userdata-mongo] WARNING: init-sales-db.js execution failed"
+  else
+    echo "[userdata-mongo] ERROR: init-sales-db.js not found or empty; skipping schema init"
+  fi
+fi
 
-  // Collection creation
-  const existingCollections = appDb.getCollectionNames();
-  if (!existingCollections.includes(collName)) {
-    print("[mongo-bootstrap] Creating collection: " + collName);
-    appDb.createCollection(collName);
-  } else {
-    print("[mongo-bootstrap] Collection already exists: " + collName);
-  }
-
-  // Indexes
-  try {
-    print("[mongo-bootstrap] Ensuring index on orders(customer_id)...");
-    appDb[collName].createIndex({ customer_id: 1 });
-  } catch (e) {
-    print("[mongo-bootstrap] Failed to create index on " + collName + ": " + e);
-  }
-
-  print("[mongo-bootstrap] Done.");
-})();
-EOF_JS
-
-mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" /root/mongo-bootstrap.js || true
+# ---------------- Download seed-sales-data.js (manual run) ---------------
+echo "[userdata-mongo] Downloading seed-sales-data.js from S3..."
+aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema/seed-sales-data.js" /root/seed-sales-data.js || echo "[userdata-mongo] WARNING: failed to download seed-sales-data.js"
 
 # ---------------- Exporters (Mongo & Node) ---------------
 # Detect arch for GitHub release assets
@@ -343,8 +333,8 @@ systemctl enable --now node_exporter mongodb_exporter
 curl -fsS http://127.0.0.1:9100/metrics | head -n 5 || true
 curl -fsS http://127.0.0.1:9216/metrics | head -n 5 || true
 
-# ---------------- Optional: S3 backups (mongodump) ------
-if [[ -n "$AWS_REGION" && -n "$BACKUP_BUCKET" && -n "$BACKUP_PREFIX" ]]; then
+# ---------------- Manual S3 backup script (no timer) ----
+if [[ -n "$AWS_REGION" && -n "$CLICKHOUSE_BUCKET" && -n "$CLICKHOUSE_PREFIX" ]]; then
   install -m 0755 -d /usr/local/bin
   cat >/usr/local/bin/mongo-backup-s3.sh <<'BKS'
 #!/usr/bin/env bash
@@ -352,53 +342,15 @@ set -euo pipefail
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="/tmp/mongo-dump-$TS"
 mongodump --uri="mongodb://127.0.0.1:$${MONGO_PORT}" --gzip --out "$OUT"
-aws s3 cp "$OUT" "s3://$${BACKUP_BUCKET}/$${BACKUP_PREFIX}/dump-$TS/" --recursive --region "$${AWS_REGION}"
+aws s3 cp "$OUT" "s3://$${CLICKHOUSE_BUCKET}/$${CLICKHOUSE_PREFIX}/backups/dump-$TS/" --recursive --region "$${AWS_REGION}"
 rm -rf "$OUT"
-echo "Uploaded Mongo dump to s3://$${BACKUP_BUCKET}/$${BACKUP_PREFIX}/dump-$TS/"
+echo "Uploaded Mongo dump to s3://$${CLICKHOUSE_BUCKET}/$${CLICKHOUSE_PREFIX}/backups/dump-$TS/"
 BKS
   chmod +x /usr/local/bin/mongo-backup-s3.sh
-
-  cat >/etc/systemd/system/mongo-backup.service <<EOF
-[Unit]
-Description=MongoDB dump to S3
-After=network-online.target mongod.service
-Wants=network-online.target
-[Service]
-Type=oneshot
-Environment=AWS_REGION=$${AWS_REGION}
-Environment=BACKUP_BUCKET=$${BACKUP_BUCKET}
-Environment=BACKUP_PREFIX=$${BACKUP_PREFIX}
-Environment=MONGO_PORT=$${MONGO_PORT}
-ExecStart=/usr/local/bin/mongo-backup-s3.sh
-Nice=10
-IOSchedulingClass=best-effort
-IOSchedulingPriority=7
-EOF
-
-  cat >/etc/systemd/system/mongo-backup.timer <<'TMR'
-[Unit]
-Description=Run MongoDB S3 backup daily
-[Timer]
-OnCalendar=daily
-RandomizedDelaySec=15m
-Persistent=true
-[Install]
-WantedBy=timers.target
-TMR
-
-  systemctl daemon-reload
-  systemctl enable --now mongo-backup.timer
-  systemctl list-timers --all | grep mongo-backup || true
+  echo "[userdata-mongo] Manual backup script installed at /usr/local/bin/mongo-backup-s3.sh"
 else
-  echo "[userdata-mongo] Skipping S3 backups (need AWS_REGION/BACKUP_BUCKET/BACKUP_PREFIX)"
+  echo "[userdata-mongo] Skipping backup script install (need AWS_REGION/CLICKHOUSE_BUCKET/CLICKHOUSE_PREFIX)"
 fi
-
-# --- Seed Mongo sales.orders with traffic for CDC ---
-
-echo "[userdata] downloading seed-sales-orders.sh from S3..."
-aws s3 cp "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/scripts/seed-sales-orders.sh" /usr/local/bin/seed-sales-orders.sh
-
-chmod +x /usr/local/bin/seed-sales-orders.sh
 
 # ---------------- Marker -------------------------------
 echo "$(date -u +%FT%TZ) BOOTSTRAP_OK" > "$MARKER_FILE"

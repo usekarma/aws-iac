@@ -77,7 +77,7 @@ If `redpanda_enable=true`, also:
   - `30-s3-backup.xml` → defines **Disk('s3_backups')** with:
     ```xml
     <type>s3_plain</type>
-    <endpoint>https://$${BACKUP_BUCKET}.s3.$${AWS_REGION}.amazonaws.com/$${BACKUP_PREFIX}/</endpoint>
+    <endpoint>https://$${CLICKHOUSE_BUCKET}.s3.$${AWS_REGION}.amazonaws.com/$${CLICKHOUSE_PREFIX}/</endpoint>
     <use_environment_credentials>true</use_environment_credentials>
     <region>$${AWS_REGION}</region>
     <metadata_path>/var/lib/clickhouse/disks/s3_backups/</metadata_path>

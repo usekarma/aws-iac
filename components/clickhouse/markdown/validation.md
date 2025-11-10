@@ -33,8 +33,8 @@ MONGO_PORT=27017
 MONGO_RS="rs0"
 
 # S3 backup location used by ClickHouse + CLI tests
-BACKUP_BUCKET=usekarma.dev-prod
-BACKUP_PREFIX=clickhouse
+CLICKHOUSE_BUCKET=usekarma.dev-prod
+CLICKHOUSE_PREFIX=clickhouse
 
 # Grafana (optional) – use an API token if auth is enforced
 # Create in Grafana UI: Settings → API Keys → Admin role
@@ -249,7 +249,7 @@ clickhouse-client -q "SELECT max(id), count() FROM events"
 # Manual backup
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 clickhouse-client -q "BACKUP DATABASE default TO Disk('s3_backups', 'manual-${TS}/')"
-aws s3 ls "s3://$BACKUP_BUCKET/$BACKUP_PREFIX/manual-${TS}/" --region $AWS_REGION --recursive
+aws s3 ls "s3://$CLICKHOUSE_BUCKET/$CLICKHOUSE_PREFIX/manual-${TS}/" --region $AWS_REGION --recursive
 
 # Timer status & last run
 systemctl status clickhouse-backup.timer --no-pager

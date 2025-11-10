@@ -38,7 +38,7 @@ MONGO_USER="${MONGO_USER:-}"
 MONGO_PASSWORD="${MONGO_PASSWORD:-}"
 
 # Optional: custom ClickHouse dashboard JSON in S3
-BACKUP_BUCKET="${BACKUP_BUCKET:-}"
+CLICKHOUSE_BUCKET="${CLICKHOUSE_BUCKET:-}"
 GRAFANA_DASHBOARD_KEY="${GRAFANA_DASHBOARD_KEY:-}"
 
 # Default dashboard IDs (override by editing this array)
@@ -444,15 +444,15 @@ done
 if [[ "$SKIP_CH" -eq 0 ]]; then
   echo "[grafana] importing custom ClickHouse Sales Orders dashboard"
 
-  if [[ -z "$BACKUP_BUCKET" || -z "$GRAFANA_DASHBOARD_KEY" ]]; then
-    echo "[grafana] WARNING: BACKUP_BUCKET or GRAFANA_DASHBOARD_KEY not set; skipping custom ClickHouse dashboard import."
+  if [[ -z "$CLICKHOUSE_BUCKET" || -z "$GRAFANA_DASHBOARD_KEY" ]]; then
+    echo "[grafana] WARNING: CLICKHOUSE_BUCKET or GRAFANA_DASHBOARD_KEY not set; skipping custom ClickHouse dashboard import."
   else
     TMP_DASH="$(mktemp)"
     WRAP_DASH="$(mktemp)"
     RESP_DASH="$(mktemp)"
 
-    echo "[grafana] fetching s3://${BACKUP_BUCKET}/${GRAFANA_DASHBOARD_KEY}"
-    if aws s3 cp "s3://${BACKUP_BUCKET}/${GRAFANA_DASHBOARD_KEY}" "$TMP_DASH"; then
+    echo "[grafana] fetching s3://${CLICKHOUSE_BUCKET}/${GRAFANA_DASHBOARD_KEY}"
+    if aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${GRAFANA_DASHBOARD_KEY}" "$TMP_DASH"; then
       if [[ ! -s "$TMP_DASH" ]]; then
         echo "[grafana] WARNING: downloaded dashboard file is empty; skipping import."
       else

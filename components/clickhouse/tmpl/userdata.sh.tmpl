@@ -9,8 +9,8 @@ export MNT="${MOUNT_POINT}"                        # e.g., "/var/lib/clickhouse"
 export MARKER_FILE="${MARKER_FILE}"                # e.g., "/var/local/BOOTSTRAP_OK"
 export CLICKHOUSE_HTTP="${CLICKHOUSE_HTTP_PORT}"   # e.g., 8123
 export CLICKHOUSE_TCP="${CLICKHOUSE_TCP_PORT}"     # e.g., 9000
-export BACKUP_BUCKET="${BACKUP_BUCKET}"            # e.g., "usekarma.dev-prod"
-export BACKUP_PREFIX="${BACKUP_PREFIX}"            # e.g., "clickhouse"
+export CLICKHOUSE_BUCKET="${CLICKHOUSE_BUCKET}"    # e.g., "usekarma.dev-prod"
+export CLICKHOUSE_PREFIX="${CLICKHOUSE_PREFIX}"    # e.g., "clickhouse"
 export AWS_REGION="${AWS_REGION}"                  # e.g., "us-east-1"
 
 # --- Remote scrape targets (filled by templatefile/TF) ---
@@ -163,7 +163,7 @@ Environment=AWS_DEFAULT_REGION=${AWS_REGION}
 EOF
 
 # ---------------- Conditionally add S3 disk -------------
-if [[ -n "${AWS_REGION}" && -n "${BACKUP_BUCKET}" && -n "${BACKUP_PREFIX}" ]]; then
+if [[ -n "${AWS_REGION}" && -n "${CLICKHOUSE_BUCKET}" && -n "${CLICKHOUSE_PREFIX}" ]]; then
   mkdir -p /var/lib/clickhouse/disks/s3_backups
   chown -R clickhouse:clickhouse /var/lib/clickhouse/disks
   cat >/etc/clickhouse-server/config.d/30-s3-backup.xml <<EOF
@@ -172,7 +172,7 @@ if [[ -n "${AWS_REGION}" && -n "${BACKUP_BUCKET}" && -n "${BACKUP_PREFIX}" ]]; t
     <disks>
       <s3_backups>
         <type>s3_plain</type>
-        <endpoint>https://$${BACKUP_BUCKET}.s3.$${AWS_REGION}.amazonaws.com/$${BACKUP_PREFIX}/</endpoint>
+        <endpoint>https://$${CLICKHOUSE_BUCKET}.s3.$${AWS_REGION}.amazonaws.com/$${CLICKHOUSE_PREFIX}/backups/</endpoint>
         <use_environment_credentials>true</use_environment_credentials>
         <region>$${AWS_REGION}</region>
         <metadata_path>/var/lib/clickhouse/disks/s3_backups/</metadata_path>
@@ -184,7 +184,7 @@ if [[ -n "${AWS_REGION}" && -n "${BACKUP_BUCKET}" && -n "${BACKUP_PREFIX}" ]]; t
 EOF
   chmod 0644 /etc/clickhouse-server/config.d/30-s3-backup.xml
 else
-  echo "[userdata] Skipping S3 disk: require AWS_REGION, BACKUP_BUCKET, BACKUP_PREFIX"
+  echo "[userdata] Skipping S3 disk: require AWS_REGION, CLICKHOUSE_BUCKET, CLICKHOUSE_PREFIX"
 fi
 
 # ---------------- Validate config & start ---------------
@@ -225,57 +225,59 @@ fi
 ss -lntp | egrep '(:8123|:9000|:9009)' || true
 clickhouse-client -q "SELECT version(), now()"
 
-# ---------------- Backup script + timer -----------------
+# ---------------- ClickHouse restore-from-S3 (if any) ---
+if [[ -n "${AWS_REGION}" && -n "${CLICKHOUSE_BUCKET}" && -n "${CLICKHOUSE_PREFIX}" ]]; then
+  echo "[userdata] Checking S3 for existing ClickHouse backup..."
+  # Look for folders like auto-YYYY.../ under s3://bucket/prefix/backups/
+  LATEST_CH_BACKUP="$(aws s3 ls "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/backups/" | awk '/auto-/{print $2}' | sort | tail -n 1 || true)"
+
+  if [[ -n "$LATEST_CH_BACKUP" ]]; then
+    echo "[userdata] Found ClickHouse backup: $LATEST_CH_BACKUP"
+    # Ensure s3_backups disk is configured in ClickHouse
+    HAS_S3_DISK="$(clickhouse-client -q "SELECT count() FROM system.disks WHERE name = 's3_backups'" || echo 0)"
+    if [[ "$HAS_S3_DISK" -eq 1 ]]; then
+      echo "[userdata] Restoring ClickHouse DATABASE default from Disk('s3_backups', '$LATEST_CH_BACKUP')..."
+      clickhouse-client --multiquery -q "
+        RESTORE DATABASE default AS default
+        FROM Disk('s3_backups', '$LATEST_CH_BACKUP')
+        SETTINGS allow_non_empty_tables = 1;
+      " || echo "[userdata] WARNING: ClickHouse RESTORE failed"
+    else
+      echo "[userdata] s3_backups disk not present in system.disks; skipping restore."
+    fi
+  else
+    echo "[userdata] No existing ClickHouse backups found in S3; starting fresh."
+  fi
+else
+  echo "[userdata] Skipping ClickHouse restore check (need AWS_REGION/CLICKHOUSE_BUCKET/CLICKHOUSE_PREFIX)"
+fi
+
+# ---------------- Manual backup script (no timer) -------
 install -m 0755 -d /usr/local/bin
 cat >/usr/local/bin/clickhouse-backup.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-if [[ "$(clickhouse-client -q "SELECT count() FROM system.disks WHERE name='s3_backups'")" -eq 1 ]]; then
-  clickhouse-client --multiquery -q "
-    BACKUP DATABASE default TO Disk('s3_backups', 'auto-$${TS}/');
-  "
-  echo "Created ClickHouse BACKUP to Disk('s3_backups', 'auto-$${TS}/')"
-else
-  echo "s3_backups disk not configured; skipping (set AWS_REGION/BACKUP_BUCKET/BACKUP_PREFIX)"
-  exit 0
+
+# Ensure s3_backups disk exists before attempting backup
+HAS_S3_DISK="$(clickhouse-client -q "SELECT count() FROM system.disks WHERE name = 's3_backups'" || echo 0)"
+if [[ "$HAS_S3_DISK" -ne 1 ]]; then
+  echo "s3_backups disk not configured; cannot run ClickHouse backup."
+  exit 1
 fi
+
+clickhouse-client --multiquery -q "
+  BACKUP DATABASE default
+  TO Disk('s3_backups', 'auto-$TS/');
+"
+echo "Created ClickHouse BACKUP DATABASE default TO Disk('s3_backups', 'auto-$TS/')"
 EOF
 chmod +x /usr/local/bin/clickhouse-backup.sh
-
-cat >/etc/systemd/system/clickhouse-backup.service <<'EOF'
-[Unit]
-Description=ClickHouse BACKUP DATABASE default -> S3 disk
-After=network-online.target clickhouse-server.service
-Wants=network-online.target
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/clickhouse-backup.sh
-Nice=10
-IOSchedulingClass=best-effort
-IOSchedulingPriority=7
-EOF
-
-cat >/etc/systemd/system/clickhouse-backup.timer <<'EOF'
-[Unit]
-Description=Run ClickHouse Backup Daily
-[Timer]
-OnCalendar=daily
-RandomizedDelaySec=10m
-Persistent=true
-[Install]
-WantedBy=timers.target
-EOF
-
-systemctl daemon-reload
-systemctl enable --now clickhouse-backup.timer
-systemctl list-timers --all | grep clickhouse-backup || true
+echo "[userdata] Manual ClickHouse backup script installed at /usr/local/bin/clickhouse-backup.sh"
 
 # Run Prometheus/Grafana bootstrap script
-
 echo "[userdata] downloading Prometheus-Grafana bootstrap script from S3..."
-
-aws s3 cp "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/scripts/prometheus-grafana-bootstrap.sh" /usr/local/bin/prometheus-grafana-bootstrap.sh
+aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/prometheus-grafana-bootstrap.sh" /usr/local/bin/prometheus-grafana-bootstrap.sh
 chmod +x /usr/local/bin/prometheus-grafana-bootstrap.sh
 /usr/local/bin/prometheus-grafana-bootstrap.sh > /var/log/prometheus-grafana-bootstrap.log 2>&1
 

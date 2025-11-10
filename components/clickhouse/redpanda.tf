@@ -128,8 +128,8 @@ resource "aws_instance" "redpanda" {
     MARKER_FILE = "/var/local/BOOTSTRAP_OK"
 
     # Backups
-    BACKUP_BUCKET = local.backup_bucket_name
-    BACKUP_PREFIX = local.backup_prefix
+    CLICKHOUSE_BUCKET = local.backup_bucket_name
+    CLICKHOUSE_PREFIX = local.backup_prefix
 
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id

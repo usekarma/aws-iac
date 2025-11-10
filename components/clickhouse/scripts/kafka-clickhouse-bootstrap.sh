@@ -2,12 +2,18 @@
 set -euo pipefail
 
 # Optionally override this when calling the script:
+#   REDPANDA_HOST=10.x.x.x ./clickhouse-schema-bootstrap.sh
 BROKER="${REDPANDA_HOST:-10.42.140.128}"
 
 clickhouse-client -n <<SQL
+-- Ensure database exists
 CREATE DATABASE IF NOT EXISTS sales;
 
-CREATE TABLE IF NOT EXISTS sales.kafka_sales_orders_raw
+-- Raw CDC stream from the single Debezium topic
+-- Assumes Debezium sends fields:
+--   before, after, updateDescription, source, op, ts_ms, transaction
+-- for *all* collections under sales.*
+CREATE TABLE IF NOT EXISTS sales.kafka_sales_cdc_raw
 (
     before            String,
     after             String,
@@ -20,38 +26,47 @@ CREATE TABLE IF NOT EXISTS sales.kafka_sales_orders_raw
 ENGINE = Kafka
 SETTINGS
     kafka_broker_list   = '${BROKER}:9092',
-    kafka_topic_list    = 'sales.sales.orders',
-    kafka_group_name    = 'clickhouse_sales_orders',
+    kafka_topic_list    = 'mongo.sales.cdc',     -- <-- single CDC topic
+    kafka_group_name    = 'clickhouse_sales_cdc',
     kafka_format        = 'JSONEachRow',
     kafka_num_consumers = 1;
 
-CREATE TABLE IF NOT EXISTS sales.orders
+-- Wide CDC events table in ClickHouse
+-- One row per Debezium CDC event, regardless of collection.
+CREATE TABLE IF NOT EXISTS sales.mongo_cdc_events
 (
-    mongo_id    String,
-    order_id    String,
-    customer_id String,
-    amount      Float64,
-    currency    String,
-    created_at  DateTime64(3)
+    db                  String,     -- source database (e.g. "sales")
+    collection          String,     -- source collection (e.g. "orders", "customers")
+    op                  String,     -- Debezium op: c,u,d,r
+    ts_ms               UInt64,     -- Debezium event timestamp (millis)
+    event_time          DateTime,   -- ts_ms converted to seconds
+    before_json         String,     -- raw "before" document (JSON)
+    after_json          String,     -- raw "after" document (JSON)
+    update_description  String,     -- raw updateDescription JSON (if present)
+    transaction_json    String      -- raw transaction JSON (if present)
 )
 ENGINE = MergeTree
-ORDER BY (created_at, order_id);
+PARTITION BY toYYYYMM(event_time)
+ORDER BY (event_time, db, collection, op);
 
-DROP TABLE IF EXISTS sales.mv_sales_orders;
+-- Recreate MV cleanly in case schema changed
+DROP TABLE IF EXISTS sales.mv_mongo_cdc_events;
 
-CREATE MATERIALIZED VIEW sales.mv_sales_orders
-TO sales.orders
+-- Materialized view: fan-in from the Kafka table into the wide CDC table
+CREATE MATERIALIZED VIEW sales.mv_mongo_cdc_events
+TO sales.mongo_cdc_events
 AS
 SELECT
-    JSONExtractString(after, '_id', '\$oid')          AS mongo_id,
-    JSONExtractString(after, 'order_id')              AS order_id,
-    JSONExtractString(after, 'customer_id')           AS customer_id,
-    JSONExtractFloat(after,  'amount')                AS amount,
-    JSONExtractString(after, 'currency')              AS currency,
-    toDateTime64(
-        JSONExtractInt(after, 'created_at', '\$date') / 1000.0,
-        3
-    ) AS created_at
-FROM sales.kafka_sales_orders_raw
-WHERE op = 'c';
+    -- These keys assume Debezium's MongoDB connector "source" structure.
+    -- Adjust JSON keys if your Debezium version uses different field names.
+    JSONExtractString(source, 'db')         AS db,
+    JSONExtractString(source, 'collection') AS collection,
+    op,
+    ts_ms,
+    toDateTime(ts_ms / 1000)               AS event_time,
+    before                                 AS before_json,
+    after                                  AS after_json,
+    updateDescription                      AS update_description,
+    transaction                            AS transaction_json
+FROM sales.kafka_sales_cdc_raw;
 SQL

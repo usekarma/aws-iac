@@ -181,7 +181,7 @@ systemctl restart clickhouse-server || true
 
 if [[ -n "${KCONNECT_HOST}" && -n "${MONGO_CONNECTION_STRING}" ]]; then
   echo "[userdata] Fetching Kafka Connect bootstrap script..."
-  aws s3 cp "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/scripts/kconnect-mongo-bootstrap.sh" /root/kconnect-mongo-bootstrap.sh || {
+  aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/kconnect-mongo-bootstrap.sh" /root/kconnect-mongo-bootstrap.sh || {
     echo "[userdata] WARN: could not fetch kconnect-mongo-bootstrap.sh from S3"
   }
   if [[ -s /root/kconnect-mongo-bootstrap.sh ]]; then
@@ -198,7 +198,7 @@ else
 fi
 
 echo "[userdata] downloading Kafka→ClickHouse bootstrap script from S3..."
-aws s3 cp "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/scripts/kafka-clickhouse-bootstrap.sh" /usr/local/bin/kafka-clickhouse-bootstrap.sh
+aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/kafka-clickhouse-bootstrap.sh" /usr/local/bin/kafka-clickhouse-bootstrap.sh
 
 chmod +x /usr/local/bin/kafka-clickhouse-bootstrap.sh
 
@@ -209,8 +209,21 @@ echo "[userdata] running Kafka→ClickHouse bootstrap (REDPANDA_HOST=${REDPANDA_
 }
 
 echo "[userdata] Kafka→ClickHouse bootstrap completed successfully."
+
+echo "[userdata] downloading clickhouse-schema-views.sh from S3..."
+aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/clickhouse-schema-views.sh" /usr/local/bin/clickhouse-schema-views.sh
+
+chmod +x /usr/local/bin/clickhouse-schema-views.sh
+
+echo "[userdata] running clickhouse-schema-views.sh..."
+/usr/local/bin/clickhouse-schema-views.sh > /var/log/clickhouse_schema_views.log 2>&1 || {
+  echo "[userdata] clickhouse-schema-views.sh failed — check /var/log/clickhouse_schema_views.log"
+  exit 1
+}
+
 echo "[userdata] downloading Grafana bootstrap script..."
-aws s3 cp "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/scripts/grafana-bootstrap.sh" /usr/local/bin/grafana-bootstrap.sh
+aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/grafana-bootstrap.sh" /usr/local/bin/grafana-bootstrap.sh
+
 
 chmod +x /usr/local/bin/grafana-bootstrap.sh
 

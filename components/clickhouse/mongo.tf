@@ -141,8 +141,8 @@ resource "aws_instance" "mongo" {
     MARKER_FILE = "/var/local/BOOTSTRAP_OK"
 
     # Backups
-    BACKUP_BUCKET = local.backup_bucket_name
-    BACKUP_PREFIX = local.backup_prefix
+    CLICKHOUSE_BUCKET = local.backup_bucket_name
+    CLICKHOUSE_PREFIX = local.backup_prefix
 
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id
@@ -167,4 +167,20 @@ resource "aws_volume_attachment" "mongo_data" {
   device_name = "/dev/xvdb"
   volume_id   = aws_ebs_volume.mongo_data[0].id
   instance_id = aws_instance.mongo[0].id
+}
+
+resource "aws_s3_object" "init_sales_db" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/schema/init-sales-db.js"
+  source = "${path.module}/schema/init-sales-db.js"
+  etag   = filemd5("${path.module}/schema/init-sales-db.js")
+  tags   = local.tags
+}
+
+resource "aws_s3_object" "seed_sales_data" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/schema/seed-sales-data.js"
+  source = "${path.module}/schema/seed-sales-data.js"
+  etag   = filemd5("${path.module}/schema/seed-sales-data.js")
+  tags   = local.tags
 }
