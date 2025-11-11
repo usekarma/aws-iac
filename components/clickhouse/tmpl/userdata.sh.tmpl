@@ -225,28 +225,38 @@ fi
 ss -lntp | egrep '(:8123|:9000|:9009)' || true
 clickhouse-client -q "SELECT version(), now()"
 
-# ---------------- ClickHouse restore-from-S3 (if any) ---
-if [[ -n "${AWS_REGION}" && -n "${CLICKHOUSE_BUCKET}" && -n "${CLICKHOUSE_PREFIX}" ]]; then
-  echo "[userdata] Checking S3 for existing ClickHouse backup..."
-  # Look for folders like auto-YYYY.../ under s3://bucket/prefix/backups/
-  LATEST_CH_BACKUP="$(aws s3 ls "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/backups/" | awk '/auto-/{print $2}' | sort | tail -n 1 || true)"
+# ---------------- ClickHouse restore-from-S3 (latest manual-*, once) ---
+RESTORE_MARKER="/var/local/clickhouse_manual_restore_done"
 
-  if [[ -n "$LATEST_CH_BACKUP" ]]; then
-    echo "[userdata] Found ClickHouse backup: $LATEST_CH_BACKUP"
-    # Ensure s3_backups disk is configured in ClickHouse
-    HAS_S3_DISK="$(clickhouse-client -q "SELECT count() FROM system.disks WHERE name = 's3_backups'" || echo 0)"
-    if [[ "$HAS_S3_DISK" -eq 1 ]]; then
-      echo "[userdata] Restoring ClickHouse DATABASE default from Disk('s3_backups', '$LATEST_CH_BACKUP')..."
-      clickhouse-client --multiquery -q "
-        RESTORE DATABASE default AS default
-        FROM Disk('s3_backups', '$LATEST_CH_BACKUP')
-        SETTINGS allow_non_empty_tables = 1;
-      " || echo "[userdata] WARNING: ClickHouse RESTORE failed"
-    else
-      echo "[userdata] s3_backups disk not present in system.disks; skipping restore."
-    fi
+if [[ -n "${AWS_REGION}" && -n "${CLICKHOUSE_BUCKET}" && -n "${CLICKHOUSE_PREFIX}" ]]; then
+  if [[ -f "$RESTORE_MARKER" ]]; then
+    echo "[userdata] ClickHouse manual restore already performed; skipping."
   else
-    echo "[userdata] No existing ClickHouse backups found in S3; starting fresh."
+    echo "[userdata] Looking for latest manual-* ClickHouse backup in S3..."
+    # Expect folders like: manual-20251109T123456Z/
+    LATEST_CH_BACKUP="$(aws s3 ls "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/backups/" \
+      | awk '/manual-/{print $2}' \
+      | sort \
+      | tail -n 1 || true)"
+
+    if [[ -n "$LATEST_CH_BACKUP" ]]; then
+      echo "[userdata] Found manual backup: $LATEST_CH_BACKUP"
+
+      # Ensure s3_backups disk is configured in ClickHouse
+      HAS_S3_DISK="$(clickhouse-client -q "SELECT count() FROM system.disks WHERE name = 's3_backups'" || echo 0)"
+      if [[ "$HAS_S3_DISK" -eq 1 ]]; then
+        echo "[userdata] Restoring ClickHouse DATABASE default from Disk('s3_backups', '$LATEST_CH_BACKUP')..."
+        clickhouse-client --multiquery -q "
+          RESTORE DATABASE default AS default
+          FROM Disk('s3_backups', '$LATEST_CH_BACKUP')
+          SETTINGS allow_non_empty_tables = 1;
+        " && touch "$RESTORE_MARKER" || echo "[userdata] WARNING: ClickHouse RESTORE failed"
+      else
+        echo "[userdata] s3_backups disk not present in system.disks; skipping restore."
+      fi
+    else
+      echo "[userdata] No manual-* ClickHouse backups found in S3; starting fresh."
+    fi
   fi
 else
   echo "[userdata] Skipping ClickHouse restore check (need AWS_REGION/CLICKHOUSE_BUCKET/CLICKHOUSE_PREFIX)"
@@ -268,9 +278,9 @@ fi
 
 clickhouse-client --multiquery -q "
   BACKUP DATABASE default
-  TO Disk('s3_backups', 'auto-$TS/');
+  TO Disk('s3_backups', 'manual-$TS/');
 "
-echo "Created ClickHouse BACKUP DATABASE default TO Disk('s3_backups', 'auto-$TS/')"
+echo "Created ClickHouse BACKUP DATABASE default TO Disk('s3_backups', 'manual-$TS/')"
 EOF
 chmod +x /usr/local/bin/clickhouse-backup.sh
 echo "[userdata] Manual ClickHouse backup script installed at /usr/local/bin/clickhouse-backup.sh"

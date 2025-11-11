@@ -181,15 +181,15 @@ systemctl restart clickhouse-server || true
 
 if [[ -n "${KCONNECT_HOST}" && -n "${MONGO_CONNECTION_STRING}" ]]; then
   echo "[userdata] Fetching Kafka Connect bootstrap script..."
-  aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/kconnect-mongo-bootstrap.sh" /root/kconnect-mongo-bootstrap.sh || {
+  aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/kconnect-mongo-bootstrap.sh" /usr/local/bin/kconnect-mongo-bootstrap.sh || {
     echo "[userdata] WARN: could not fetch kconnect-mongo-bootstrap.sh from S3"
   }
-  if [[ -s /root/kconnect-mongo-bootstrap.sh ]]; then
-    chmod +x /root/kconnect-mongo-bootstrap.sh || true
+  if [[ -s /usr/local/bin/kconnect-mongo-bootstrap.sh ]]; then
+    chmod +x /usr/local/bin/kconnect-mongo-bootstrap.sh || true
     echo "[userdata] Running Kafka Connect bootstrap..."
     KCONNECT_HOST="${KCONNECT_HOST}" \
     MONGO_CONNECTION_STRING="${MONGO_CONNECTION_STRING}" \
-      /root/kconnect-mongo-bootstrap.sh || echo "[userdata] WARN: kconnect bootstrap failed (non-fatal)"
+      /usr/local/bin/kconnect-mongo-bootstrap.sh || echo "[userdata] WARN: kconnect bootstrap failed (non-fatal)"
   else
     echo "[userdata] WARN: kconnect bootstrap script missing or empty; skipping."
   fi

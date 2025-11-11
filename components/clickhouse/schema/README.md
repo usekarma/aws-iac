@@ -1,6 +1,6 @@
 # MongoDB → Debezium → Kafka → ClickHouse CDC Demo
 
-This demo sets up a complete end‑to‑end Change Data Capture (CDC) pipeline from MongoDB into ClickHouse through Debezium and Kafka (Redpanda). It includes realistic data for a sales domain — customers, products, inventory, orders, and vendors — and provides ready‑to‑use scripts for schema creation, seeding, and analytical visualization in Grafana.
+This demo sets up a complete end-to-end Change Data Capture (CDC) pipeline from MongoDB into ClickHouse through Debezium and Kafka (Redpanda). It includes realistic data for a sales domain — customers, products, inventory, orders, and vendors — and provides ready-to-use scripts for schema creation, seeding, and analytical visualization in Grafana.
 
 ---
 
@@ -9,9 +9,9 @@ This demo sets up a complete end‑to‑end Change Data Capture (CDC) pipeline f
 | Layer | Technology | Description |
 |--------|-------------|--------------|
 | Source | **MongoDB** | Operational data source with 5 related collections (`customers`, `vendors`, `products`, `inventory`, `orders`) |
-| CDC | **Debezium MongoDB Connector** | Streams all collections from the `sales` database into a single topic `mongo.sales.cdc` |
+| CDC | **Debezium MongoDB Connector (v3.3.1.Final)** | Streams all collections from the `sales` database into a single topic `mongo.sales.cdc` |
 | Transport | **Kafka / Redpanda** | Message broker for CDC events |
-| Sink | **ClickHouse** | Receives CDC events via Kafka ENGINE table `sales.kafka_sales_cdc_raw` and stores parsed records in `sales.mongo_cdc_events` |
+| Sink | **ClickHouse 25.10.1** | Receives CDC events via Kafka ENGINE table `sales.kafka_sales_cdc_raw` and stores parsed records in `sales.mongo_cdc_events` |
 | Views | **ClickHouse SQL** | Typed analytical views for `orders_v`, `customers_v`, `products_v`, `inventory_v`, `vendors_v` |
 | Visualization | **Grafana** | Dashboards for CDC metrics, revenue trends, and order lifecycles |
 
@@ -22,7 +22,7 @@ This demo sets up a complete end‑to‑end Change Data Capture (CDC) pipeline f
 ### 1️⃣ Initialize MongoDB Schema
 
 ```bash
-mongosh "mongodb://127.0.0.1:27017" init-sales-db.js
+mongosh "mongodb://127.0.0.1:27017" /usr/local/bin/init-sales-db.js
 ```
 
 This creates the `sales` database with collections and indexes for:
@@ -38,10 +38,12 @@ This creates the `sales` database with collections and indexes for:
 Populate realistic demo data:
 
 ```bash
-mongosh "mongodb://127.0.0.1:27017" seed-sales-data.js
+mongosh "mongodb://127.0.0.1:27017" /usr/local/bin/seed-sales-data.js
 ```
 
 This script generates customers, products, vendors, and time‑spaced orders suitable for CDC and time‑series visualization.
+
+> To generate a larger dataset, adjust `NUM_CUSTOMERS` and `NUM_ORDERS` inside `seed-sales-data.js` before running.
 
 ### 3️⃣ Start Debezium MongoDB Connector
 
@@ -66,6 +68,8 @@ CREATE TABLE sales.kafka_sales_cdc_raw (... ENGINE = Kafka ...);
 CREATE TABLE sales.mongo_cdc_events (... ENGINE = MergeTree ...);
 CREATE MATERIALIZED VIEW sales.mv_mongo_cdc_events AS SELECT ...;
 ```
+
+If a previous backup exists in S3, the instance automatically restores from the **latest `manual-*` snapshot** during first boot.
 
 ### 5️⃣ Apply Typed Views
 
@@ -102,7 +106,56 @@ SELECT product_id, avg(available_qty) FROM sales.inventory_v GROUP BY product_id
 
 ---
 
-## 🔁 Backup and Restore
+## 🧰 MongoDB Backup and Restore
+
+For local or EC2-hosted MongoDB instances, you can use either **`mongodump`/`mongorestore`** (BSON backup) or **`mongoexport`/`mongoimport`** (JSON/CSV snapshot).
+
+### 📦 Full BSON Backup
+
+```bash
+# Backup the entire "sales" database
+mongodump --host 127.0.0.1 --port 27017 --db sales --out /var/backups/mongo/sales-$(date -u +%Y%m%dT%H%M%SZ)
+```
+
+This creates a timestamped folder containing all collections and their indexes.
+
+### 🔄 Restore from BSON Backup
+
+```bash
+# Restore into a clean "sales" database
+mongorestore --drop --db sales /var/backups/mongo/sales-<timestamp>/sales
+```
+
+- The `--drop` flag replaces existing collections.  
+- You can omit it if you just want to merge new data in.
+
+### 📤 Export as JSON (optional)
+
+If you prefer human-readable JSON exports:
+
+```bash
+mongoexport --db sales --collection orders --out orders.json
+```
+
+And restore it with:
+
+```bash
+mongoimport --db sales --collection orders --drop --file orders.json
+```
+
+### ☁️ Optional S3 Archival
+
+To push MongoDB dumps to S3 for safekeeping:
+
+```bash
+aws s3 sync /var/backups/mongo/ s3://usekarma-backups/mongo/
+```
+
+Or schedule it daily with cron.
+
+---
+
+## 🔁 ClickHouse Backup and Restore
 
 Manual backup to S3 (using instance IAM role):
 
@@ -116,13 +169,15 @@ Restore later:
 clickhouse-client -q "RESTORE DATABASE sales FROM Disk('s3_backups', 'manual-<timestamp>/')"
 ```
 
+If a previous backup exists in S3, the instance automatically restores from the latest snapshot during first boot (handled by EC2 user data).
+
 ---
 
 ## 📂 File Reference
 
 | File | Purpose |
 |------|----------|
-| `init-sales-db.js` | Defines MongoDB schema and initial sample data |
+| `init-sales-db.js` | Defines MongoDB schema (collections, indexes only) |
 | `seed-sales-data.js` | Populates MongoDB with temporal data for CDC testing |
 | `kconnect-mongo-bootstrap.sh` | Configures Debezium connector `mongo-cdc-sales` |
 | `kafka-clickhouse-bootstrap.sh` | Creates ClickHouse Kafka source, wide table, MV |
@@ -140,5 +195,4 @@ clickhouse-client -q "RESTORE DATABASE sales FROM Disk('s3_backups', 'manual-<ti
 
 ---
 
-**Author:** Generated for CDC and observability demonstrations  
-**License:** MIT (modify freely)
+_Last updated: 2025-11-10 America/Chicago_

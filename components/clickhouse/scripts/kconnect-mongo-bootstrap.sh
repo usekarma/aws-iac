@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONNECTOR_JSON_PATH="/root/mongo-cdc-sales.json"
+CONNECTOR_JSON_PATH="/usr/local/bin/mongo-cdc-sales.json"
 KCONNECT_HOST="${KCONNECT_HOST}"
 MONGO_CONNECTION_STRING="${MONGO_CONNECTION_STRING}"
 
@@ -20,10 +20,6 @@ cat >"${CONNECTOR_JSON_PATH}" <<EOF
     "database.include.list": "sales",
     "collection.include.list": "sales.customers,sales.vendors,sales.products,sales.inventory,sales.orders",
 
-    // Debezium will normally create one topic per collection like:
-    //   mongo.sales.customers
-    //   mongo.sales.orders
-    // We use RegexRouter to funnel everything into a SINGLE topic:
     "topic.prefix": "mongo",
     "transforms": "route",
     "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
