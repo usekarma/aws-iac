@@ -1,3 +1,15 @@
+variable "ch_only" {
+  description = <<EOT
+Optional override for ClickHouse-only mode.
+
+- null  => follow local.config.clickhouse_only
+- true  => force ClickHouse-only (no Mongo/Redpanda/KConnect)
+- false => force full stack (allow those features if enabled)
+EOT
+  type    = any
+  default = null
+}
+
 locals {
   # Instance
   instance_type = try(local.config.instance_type, "m6i.large")
@@ -28,12 +40,23 @@ locals {
 
   # Grafana
   grafana_url   = try(local.config.grafana_url, "http://127.0.0.1:3000")
-  grafana_admin = try(local.config.grafana_url, "admin")
-  grafana_pass  = try(local.config.grafana_url, "admin")
+  grafana_admin = try(local.config.grafana_admin, "admin")
+  grafana_pass  = try(local.config.grafana_pass, "admin")
 
   # Prometheus
   prometheus_url     = try(local.config.prometheus_url, "http://127.0.0.1:9090")
   prometheus_ds_name = try(local.config.prometheus_ds_name, "Prometheus")
+
+  # Mode: ClickHouse-only
+  #   - config key: clickhouse_only
+  #   - CLI override: -var ch_only=...
+  clickhouse_only_cfg = try(local.config.clickhouse_only, false)
+  ch_only             = var.ch_only != null ? var.ch_only : local.clickhouse_only_cfg
+
+  # Derived feature flags (align with alb.tf / kconnect.tf)
+  enable_mongo    = local.ch_only ? false : try(local.config.enable_mongo, true)
+  enable_redpanda = local.ch_only ? false : try(local.config.enable_redpanda, true)
+  enable_kconnect = local.ch_only ? false : try(local.config.enable_kconnect, true)
 
   vpc       = jsondecode(nonsensitive(data.aws_ssm_parameter.vpc_runtime.value))
   vpc_id    = local.vpc.vpc_id
@@ -109,7 +132,13 @@ data "aws_iam_policy_document" "backup" {
   }
   statement {
     sid     = "S3BackupsRW"
-    actions = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"]
+    actions = [
+      "s3:PutObject",
+      "s3:GetObject",
+      "s3:DeleteObject",
+      "s3:AbortMultipartUpload",
+      "s3:ListMultipartUploadParts"
+    ]
     resources = [
       "arn:aws:s3:::${local.backup_bucket_name}/${local.backup_prefix}/*"
     ]
@@ -136,6 +165,7 @@ resource "aws_security_group" "clickhouse" {
   name        = "${var.nickname}-sg-clickhouse"
   description = "ClickHouse EC2"
   vpc_id      = local.vpc_id
+
   egress = [{
     cidr_blocks      = ["0.0.0.0/0"]
     description      = "all egress"
@@ -147,7 +177,11 @@ resource "aws_security_group" "clickhouse" {
     security_groups  = null
     self             = null
   }]
-  tags = merge(local.tags, { Role = "clickhouse", Name = "${var.nickname}-sg-clickhouse" })
+
+  tags = merge(local.tags, {
+    Role = "clickhouse"
+    Name = "${var.nickname}-sg-clickhouse"
+  })
 }
 
 # Allow HTTPS between instance SGs and default SG
@@ -194,10 +228,13 @@ resource "aws_ebs_volume" "data" {
   availability_zone = data.aws_subnet.chosen.availability_zone
   size              = local.ebs_size_gb
   type              = local.ebs_type
-  iops              = local.ebs_type == "gp3" ? local.ebs_iops : null
+  iops              = local.ebs_type == "gp3" ? local.ebs_iops       : null
   throughput        = local.ebs_type == "gp3" ? local.ebs_throughput : null
   encrypted         = true
-  tags              = merge(local.tags, { Name = "${var.nickname}-clickhouse-data" })
+
+  tags = merge(local.tags, {
+    Name = "${var.nickname}-clickhouse-data"
+  })
 }
 
 ############################
@@ -243,21 +280,25 @@ resource "aws_instance" "clickhouse" {
     PROMETHEUS_VER = local.prometheus_ver
     NODEEXP_VER    = local.nodeexp_ver
 
-    MONGO_HOST      = aws_instance.mongo[0].private_ip
-    MONGO_EXP_PORT  = local.mongo_exporter_port
-    MONGO_NODE_PORT = local.mongo_nodeexp_port
+    # Mongo (optional – empty/zero in ClickHouse-only mode)
+    MONGO_HOST      = local.enable_mongo ? aws_instance.mongo[0].private_ip : ""
+    MONGO_EXP_PORT  = local.enable_mongo ? local.mongo_exporter_port        : 0
+    MONGO_NODE_PORT = local.enable_mongo ? local.mongo_nodeexp_port        : 0
 
-    REDPANDA_HOST       = aws_instance.redpanda[0].private_ip
-    REDPANDA_EXP_PORT   = local.redpanda_exporter_port
-    REDPANDA_NODE_PORT  = local.redpanda_nodeexp_port
-    REDPANDA_BROKERS    = format("%s:%d", aws_instance.redpanda[0].private_ip, local.redpanda_port)
-    REDPANDA_TOPIC      = local.redpanda_topic
-    REDPANDA_PARTITIONS = local.redpanda_partitions
-    REDPANDA_RETMS      = local.redpanda_retention
+    # Redpanda (optional)
+    REDPANDA_HOST       = local.enable_redpanda ? aws_instance.redpanda[0].private_ip                       : ""
+    REDPANDA_EXP_PORT   = local.enable_redpanda ? local.redpanda_exporter_port                              : 0
+    REDPANDA_NODE_PORT  = local.enable_redpanda ? local.redpanda_nodeexp_port                               : 0
+    REDPANDA_BROKERS    = local.enable_redpanda ? format("%s:%d", aws_instance.redpanda[0].private_ip, local.redpanda_port) : ""
+    REDPANDA_TOPIC      = local.enable_redpanda ? local.redpanda_topic                                      : ""
+    REDPANDA_PARTITIONS = local.enable_redpanda ? local.redpanda_partitions                                 : 0
+    REDPANDA_RETMS      = local.enable_redpanda ? local.redpanda_retention                                  : 0
 
-    MONGO_CONNECTION_STRING = local.mongo_connection_string
-    KCONNECT_HOST           = local.kconnect_rest_host
-    GRAFANA_DASHBOARD_KEY   = "${local.backup_prefix}/dashboards/mongo-clickhouse-sales-orders.json"
+    # Connector / Mongo connection (optional)
+    MONGO_CONNECTION_STRING = local.enable_mongo    ? local.mongo_connection_string : ""
+    KCONNECT_HOST           = local.enable_kconnect ? local.kconnect_rest_host      : ""
+
+    GRAFANA_DASHBOARD_KEY = "${local.backup_prefix}/dashboards/mongo-clickhouse-sales-orders.json"
 
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id
@@ -269,15 +310,16 @@ resource "aws_instance" "clickhouse" {
     Role     = "clickhouse"
   })
 
+  # Static list; it's okay to depend on resources that might have count=0
   depends_on = [
-    aws_instance.mongo,
-    aws_instance.redpanda,
-    aws_ecs_service.kconnect,
     aws_s3_object.prometheus_grafana_bootstrap,
     aws_s3_object.kconnect_mongo_bootstrap,
     aws_s3_object.kafka_clickhouse_bootstrap,
     aws_s3_object.grafana_bootstrap,
-    aws_s3_object.sales_dashboard
+    aws_s3_object.sales_dashboard,
+    aws_instance.mongo,
+    aws_instance.redpanda,
+    aws_ecs_service.kconnect,
   ]
 }
 
@@ -338,6 +380,7 @@ resource "aws_s3_object" "sales_dashboard" {
 resource "aws_ssm_parameter" "runtime" {
   name = local.runtime_path
   type = "String"
+
   value = jsonencode({
     instance_id        = aws_instance.clickhouse.id,
     private_ip         = aws_instance.clickhouse.private_ip,
@@ -350,20 +393,21 @@ resource "aws_ssm_parameter" "runtime" {
     vpc_id             = local.vpc_id,
     subnet_id          = local.subnet_id,
 
-    # Red Panda Kafka
-    redpanda_instance_id       = aws_instance.redpanda[0].id,
-    redpanda_private_ip        = aws_instance.redpanda[0].private_ip,
-    redpanda_security_group_id = aws_security_group.redpanda[0].id,
-    redpanda_brokers           = "${aws_instance.redpanda[0].private_ip}:${local.redpanda_port}"
+    # Redpanda (nulls when disabled)
+    redpanda_instance_id       = local.enable_redpanda ? aws_instance.redpanda[0].id         : null,
+    redpanda_private_ip        = local.enable_redpanda ? aws_instance.redpanda[0].private_ip : null,
+    redpanda_security_group_id = local.enable_redpanda ? aws_security_group.redpanda[0].id   : null,
+    redpanda_brokers           = local.enable_redpanda ? "${aws_instance.redpanda[0].private_ip}:${local.redpanda_port}" : null,
 
-    # MongoDB
-    mongo_instance_id       = aws_instance.mongo[0].id,
-    mongo_private_ip        = aws_instance.mongo[0].private_ip,
-    mongo_port              = local.mongo_port,
-    mongo_replset           = "rs0",
-    mongo_rs_uri            = "mongodb://${aws_instance.mongo[0].private_ip}:${local.mongo_port}/?replicaSet=rs0",
-    mongo_security_group_id = aws_security_group.mongo[0].id
+    # MongoDB (nulls when disabled)
+    mongo_instance_id       = local.enable_mongo ? aws_instance.mongo[0].id         : null,
+    mongo_private_ip        = local.enable_mongo ? aws_instance.mongo[0].private_ip : null,
+    mongo_port              = local.enable_mongo ? local.mongo_port                 : null,
+    mongo_replset           = local.enable_mongo ? "rs0"                            : null,
+    mongo_rs_uri            = local.enable_mongo ? "mongodb://${aws_instance.mongo[0].private_ip}:${local.mongo_port}/?replicaSet=rs0" : null,
+    mongo_security_group_id = local.enable_mongo ? aws_security_group.mongo[0].id   : null
   })
+
   overwrite = true
   tier      = "Standard"
   tags      = local.tags

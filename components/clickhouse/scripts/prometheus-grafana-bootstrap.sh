@@ -1,6 +1,27 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
+# ------------- Timing helpers -----------------
+SCRIPT_START_EPOCH=$(date +%s)
+STEP_START_EPOCH=$SCRIPT_START_EPOCH
+
+log_step() {
+  local label="$1"
+  local now_epoch
+  now_epoch=$(date +%s)
+  local now_iso
+  now_iso=$(date -Is)
+  local total=$$((now_epoch - SCRIPT_START_EPOCH))
+  local delta=$$((now_epoch - STEP_START_EPOCH))
+  echo "[userdata-prom-grafana:obs][TIME] $${now_iso} $${label}: +$${delta}s (total $${total}s)"
+  STEP_START_EPOCH=$$now_epoch
+}
+
+# make xtrace lines include timestamps + location
+export PS4='+ $(date -Is) [$${BASH_SOURCE}:$${LINENO}] '
+
+log_step "prometheus-grafana bootstrap script entry"
+
 # ================= Prometheus + Grafana + Exporters =================
 
 # ---- Prometheus (binary install) ----
@@ -100,6 +121,7 @@ EOF
 chown -R prometheus:prometheus /etc/prometheus /var/lib/prometheus
 systemctl daemon-reload
 systemctl enable --now prometheus
+log_step "Prometheus installed, configured, and started"
 
 # ---- Grafana (repo install) ----
 if [[ "$PM" == "apt" ]]; then
@@ -125,7 +147,7 @@ REPO
   $PM -y install grafana
 fi
 systemctl enable --now grafana-server
-
+log_step "Grafana installed and started"
 
 # ---- Node Exporter (binary install; loopback only) ----
 cd /opt
@@ -161,6 +183,7 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now node_exporter
+log_step "node_exporter installed and started"
 
 # ---- ClickHouse native Prometheus endpoint on 9363 ----
 cat >/etc/clickhouse-server/config.d/40-prometheus.xml <<'EOF'
@@ -176,9 +199,9 @@ cat >/etc/clickhouse-server/config.d/40-prometheus.xml <<'EOF'
 EOF
 
 systemctl restart clickhouse-server || true
+log_step "ClickHouse Prometheus endpoint configured (9363) and server restarted"
 
 # ---------- Optional: run Kafka Connect bootstrap script from S3 ----------
-
 if [[ -n "${KCONNECT_HOST}" && -n "${MONGO_CONNECTION_STRING}" ]]; then
   echo "[userdata] Fetching Kafka Connect bootstrap script..."
   aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/kconnect-mongo-bootstrap.sh" /usr/local/bin/kconnect-mongo-bootstrap.sh || {
@@ -193,44 +216,48 @@ if [[ -n "${KCONNECT_HOST}" && -n "${MONGO_CONNECTION_STRING}" ]]; then
   else
     echo "[userdata] WARN: kconnect bootstrap script missing or empty; skipping."
   fi
+  log_step "Kafka Connect bootstrap section completed"
 else
   echo "[userdata] KCONNECT_HOST or MONGO_CONNECTION_STRING not set; skipping Kafka Connect bootstrap."
+  log_step "Kafka Connect bootstrap skipped (missing env)"
 fi
 
 echo "[userdata] downloading Kafka→ClickHouse bootstrap script from S3..."
 aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/kafka-clickhouse-bootstrap.sh" /usr/local/bin/kafka-clickhouse-bootstrap.sh
-
 chmod +x /usr/local/bin/kafka-clickhouse-bootstrap.sh
 
 echo "[userdata] running Kafka→ClickHouse bootstrap (REDPANDA_HOST=${REDPANDA_HOST})..."
 /usr/local/bin/kafka-clickhouse-bootstrap.sh > /var/log/kafka_clickhouse_bootstrap.log 2>&1 || {
   echo "[userdata] Kafka→ClickHouse bootstrap failed — check /var/log/kafka_clickhouse_bootstrap.log"
+  log_step "Kafka→ClickHouse bootstrap FAILED"
   exit 1
 }
-
-echo "[userdata] Kafka→ClickHouse bootstrap completed successfully."
+log_step "Kafka→ClickHouse bootstrap completed successfully"
 
 echo "[userdata] downloading clickhouse-schema-views.sh from S3..."
 aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/clickhouse-schema-views.sh" /usr/local/bin/clickhouse-schema-views.sh
-
 chmod +x /usr/local/bin/clickhouse-schema-views.sh
 
 echo "[userdata] running clickhouse-schema-views.sh..."
 /usr/local/bin/clickhouse-schema-views.sh > /var/log/clickhouse_schema_views.log 2>&1 || {
   echo "[userdata] clickhouse-schema-views.sh failed — check /var/log/clickhouse_schema_views.log"
+  log_step "clickhouse-schema-views.sh FAILED"
   exit 1
 }
+log_step "clickhouse-schema-views.sh completed successfully"
 
 echo "[userdata] downloading Grafana bootstrap script..."
 aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/grafana-bootstrap.sh" /usr/local/bin/grafana-bootstrap.sh
-
-
 chmod +x /usr/local/bin/grafana-bootstrap.sh
 
 echo "[userdata] running Grafana bootstrap..."
 /usr/local/bin/grafana-bootstrap.sh > /var/log/grafana_bootstrap.log 2>&1 || {
   echo "[userdata] Grafana bootstrap failed, see /var/log/grafana_bootstrap.log"
+  log_step "Grafana bootstrap FAILED"
   exit 1
 }
-
 echo "[userdata] Grafana bootstrap completed successfully."
+log_step "Grafana bootstrap completed; observability stack ready"
+
+# final timing marker
+log_step "prometheus-grafana bootstrap script complete"

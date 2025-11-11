@@ -1,5 +1,4 @@
 locals {
-  mongo_enable        = try(local.config.mongo_enable, true)
   mongo_instance_type = try(local.config.mongo_instance_type, "r6i.large")
   mongo_volume_gb     = try(local.config.mongo_volume_gb, 300)
   mongo_iops          = try(local.config.mongo_iops, 3000)
@@ -12,14 +11,24 @@ locals {
   mongo_nodeexp_ver   = try(local.config.mongo_nodeexp_ver, "1.8.2")
   mongo_nodeexp_port  = try(local.config.mongo_node_port, 9100)
 
-  mongo_connection_string = "mongodb://${aws_instance.mongo[0].private_ip}:${local.mongo_port}/?replicaSet=rs0"
+  # Only build the connection string when Mongo is enabled
+  mongo_connection_string = local.enable_mongo ? format(
+    "mongodb://%s:%d/?replicaSet=%s",
+    aws_instance.mongo[0].private_ip,
+    local.mongo_port,
+    local.mongo_rs_name
+  ) : ""
 
   # Which SGs may connect to Mongo? (e.g., Kafka Connect SG, ClickHouse SG)
-  # Base SGs: ClickHouse + kconnect
-  mongo_base_sg_map = {
-    clickhouse = aws_security_group.clickhouse.id
-    kconnect   = aws_security_group.kconnect.id
-  }
+  # Base SGs: ClickHouse + kconnect (only when enabled)
+  mongo_base_sg_map = merge(
+    {
+      clickhouse = aws_security_group.clickhouse.id
+    },
+    local.enable_kconnect ? {
+      kconnect = aws_security_group.kconnect[0].id
+    } : {}
+  )
 
   # Extra SGs from config (list of IDs) → turn into a map: id => id
   mongo_extra_sg_map = {
@@ -38,7 +47,7 @@ locals {
 }
 
 resource "aws_security_group" "mongo" {
-  count       = local.mongo_enable ? 1 : 0
+  count       = local.enable_mongo ? 1 : 0
   name        = "${var.nickname}-sg-mongo"
   description = "MongoDB single-node RS for CDC"
   vpc_id      = local.vpc_id
@@ -58,20 +67,20 @@ resource "aws_security_group" "mongo" {
   tags = merge(local.tags, { Role = "mongo", Name = "${var.nickname}-sg-mongo" })
 }
 
-# Allow from permitted SGs (Kafka Connect, ClickHouse if needed) on 27017
+# Allow from permitted SGs (ClickHouse, kconnect, plus any extras from config)
 resource "aws_vpc_security_group_ingress_rule" "mongo_from_sgs_27017" {
-  count                        = local.mongo_enable ? 1 : 0
-  security_group_id            = aws_security_group.mongo[0].id
-  referenced_security_group_id = local.vpc_sg_id
-  ip_protocol                  = "tcp"
-  from_port                    = local.mongo_port
-  to_port                      = local.mongo_port
-  description                  = "Mongo 27017 from allowed SG"
+  for_each                    = local.enable_mongo ? local.mongo_allowed_sg_map : {}
+  security_group_id           = aws_security_group.mongo[0].id
+  referenced_security_group_id = each.value
+  ip_protocol                 = "tcp"
+  from_port                   = local.mongo_port
+  to_port                     = local.mongo_port
+  description                 = "Mongo 27017 from allowed SG ${each.key}"
 }
 
 # Optional: allow from specific CIDRs (e.g., admin jump host)
 resource "aws_vpc_security_group_ingress_rule" "mongo_from_cidrs_27017" {
-  for_each          = local.mongo_enable ? local.mongo_allowed_cidrs : toset([])
+  for_each          = local.enable_mongo ? local.mongo_allowed_cidrs : toset([])
   security_group_id = aws_security_group.mongo[0].id
   cidr_ipv4         = each.value
   ip_protocol       = "tcp"
@@ -81,7 +90,7 @@ resource "aws_vpc_security_group_ingress_rule" "mongo_from_cidrs_27017" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "mongo_node_exporter" {
-  count                        = local.mongo_enable ? 1 : 0
+  count                        = local.enable_mongo ? 1 : 0
   security_group_id            = aws_security_group.mongo[0].id
   referenced_security_group_id = aws_security_group.clickhouse.id
   ip_protocol                  = "tcp"
@@ -91,7 +100,7 @@ resource "aws_vpc_security_group_ingress_rule" "mongo_node_exporter" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "mongo_exporter" {
-  count                        = local.mongo_enable ? 1 : 0
+  count                        = local.enable_mongo ? 1 : 0
   security_group_id            = aws_security_group.mongo[0].id
   referenced_security_group_id = aws_security_group.clickhouse.id
   ip_protocol                  = "tcp"
@@ -102,7 +111,7 @@ resource "aws_vpc_security_group_ingress_rule" "mongo_exporter" {
 
 # Data volume for Mongo
 resource "aws_ebs_volume" "mongo_data" {
-  count             = local.mongo_enable ? 1 : 0
+  count             = local.enable_mongo ? 1 : 0
   availability_zone = data.aws_subnet.chosen.availability_zone
   size              = local.mongo_volume_gb
   type              = "gp3"
@@ -114,7 +123,7 @@ resource "aws_ebs_volume" "mongo_data" {
 
 # Mongo EC2 instance
 resource "aws_instance" "mongo" {
-  count                       = local.mongo_enable ? 1 : 0
+  count                       = local.enable_mongo ? 1 : 0
   ami                         = data.aws_ami.al2023.id
   instance_type               = local.mongo_instance_type
   subnet_id                   = local.subnet_id
@@ -163,7 +172,7 @@ resource "aws_instance" "mongo" {
 }
 
 resource "aws_volume_attachment" "mongo_data" {
-  count       = local.mongo_enable ? 1 : 0
+  count       = local.enable_mongo ? 1 : 0
   device_name = "/dev/xvdb"
   volume_id   = aws_ebs_volume.mongo_data[0].id
   instance_id = aws_instance.mongo[0].id

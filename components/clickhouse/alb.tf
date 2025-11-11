@@ -3,12 +3,14 @@ locals {
   domain_name = try(local.config.domain_name, "usekarma.dev")
   alb_name    = try(local.config.alb_name, "usekarma-observability")
 
-  grafana_host    = try(local.config.grafana_host, format("grafana.%s", local.domain_name))
+  grafana_host    = try(local.config.grafana_host,    format("grafana.%s",    local.domain_name))
   prometheus_host = try(local.config.prometheus_host, format("prometheus.%s", local.domain_name))
   clickhouse_host = try(local.config.clickhouse_host, format("clickhouse.%s", local.domain_name))
+  mongo_host      = try(local.config.mongo_host,      format("mongo.%s",      local.domain_name))
 
-  prometheus_ver = try(local.config.domain_name, "2.54.1")
-  nodeexp_ver    = try(local.config.domain_name, "1.8.1")
+  # Versions
+  prometheus_ver = try(local.config.prometheus_ver, "2.54.1")
+  nodeexp_ver    = try(local.config.nodeexp_ver,    "1.8.1")
 
   # zone_id is optional in config; if omitted, we’ll look it up by domain
   zone_id_opt = try(local.config.zone_id, null)
@@ -22,8 +24,17 @@ data "aws_route53_zone" "this" {
 }
 
 locals {
-  zone_id   = local.zone_id_opt != null ? local.zone_id_opt : data.aws_route53_zone.this[0].zone_id
-  alt_names = compact(distinct([local.grafana_host, local.prometheus_host, local.clickhouse_host]))
+  zone_id = local.zone_id_opt != null ? local.zone_id_opt : data.aws_route53_zone.this[0].zone_id
+
+  # Include hosts in SANs; only add mongo when enabled
+  alt_names = compact(distinct(concat(
+    [
+      local.grafana_host,
+      local.prometheus_host,
+      local.clickhouse_host,
+    ],
+    local.enable_mongo ? [local.mongo_host] : []
+  )))
 }
 
 # ---------- ACM certificate + DNS validation ----------
@@ -60,7 +71,7 @@ resource "aws_acm_certificate_validation" "this" {
 # ---------- ALB Security Group ----------
 resource "aws_security_group" "alb" {
   name        = "${local.alb_name}-sg"
-  description = "ALB for Grafana/Prometheus/ClickHouse"
+  description = "ALB for Grafana/Prometheus/ClickHouse/Mongo"
   vpc_id      = local.vpc_id
 
   # HTTPS + HTTP (for redirect)
@@ -130,6 +141,18 @@ resource "aws_vpc_security_group_ingress_rule" "from_alb_clickhouse" {
   from_port                    = local.clickhouse_http_port
   to_port                      = local.clickhouse_http_port
   description                  = "ALB to ClickHouse HTTP"
+}
+
+# Allow ALB → Mongo instance (mongo-express) on 8081
+resource "aws_vpc_security_group_ingress_rule" "from_alb_mongo_express" {
+  count = local.enable_mongo ? 1 : 0
+
+  security_group_id            = aws_security_group.mongo[0].id
+  referenced_security_group_id = aws_security_group.alb.id
+  ip_protocol                  = "tcp"
+  from_port                    = 8081
+  to_port                      = 8081
+  description                  = "ALB to mongo-express"
 }
 
 # ---------- ALB ----------
@@ -205,7 +228,29 @@ resource "aws_lb_target_group" "clickhouse" {
   deregistration_delay = 10
 }
 
-# ---------- Attach instance to TGs ----------
+resource "aws_lb_target_group" "mongo_express" {
+  count       = local.enable_mongo ? 1 : 0
+  name_prefix = "mg-"
+  port        = 8081
+  protocol    = "HTTP"
+  target_type = "instance"
+  vpc_id      = local.vpc_id
+
+  health_check {
+    path                = "/"
+    protocol            = "HTTP"
+    port                = "8081"
+    healthy_threshold   = 2
+    unhealthy_threshold = 5
+    timeout             = 5
+    interval            = 30
+    matcher             = "200-399"
+  }
+
+  deregistration_delay = 10
+}
+
+# ---------- Attach instances to TGs ----------
 resource "aws_lb_target_group_attachment" "grafana" {
   target_group_arn = aws_lb_target_group.grafana.arn
   target_id        = aws_instance.clickhouse.id
@@ -222,6 +267,14 @@ resource "aws_lb_target_group_attachment" "clickhouse" {
   target_group_arn = aws_lb_target_group.clickhouse.arn
   target_id        = aws_instance.clickhouse.id
   port             = local.clickhouse_http_port
+}
+
+resource "aws_lb_target_group_attachment" "mongo_express" {
+  count = local.enable_mongo ? 1 : 0
+
+  target_group_arn = aws_lb_target_group.mongo_express[0].arn
+  target_id        = aws_instance.mongo[0].id
+  port             = 8081
 }
 
 # ---------- Listeners ----------
@@ -301,6 +354,23 @@ resource "aws_lb_listener_rule" "clickhouse_host" {
   }
 }
 
+resource "aws_lb_listener_rule" "mongo_host" {
+  count        = local.enable_mongo ? 1 : 0
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 40
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.mongo_express[0].arn
+  }
+
+  condition {
+    host_header {
+      values = [local.mongo_host] # defaults to "mongo.usekarma.dev"
+    }
+  }
+}
+
 # ---------- Route53 A-records to ALB ----------
 resource "aws_route53_record" "grafana" {
   zone_id = local.zone_id
@@ -327,6 +397,18 @@ resource "aws_route53_record" "prometheus" {
 resource "aws_route53_record" "clickhouse" {
   zone_id = local.zone_id
   name    = local.clickhouse_host
+  type    = "A"
+  alias {
+    name                   = aws_lb.obs.dns_name
+    zone_id                = aws_lb.obs.zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "mongo" {
+  count  = local.enable_mongo ? 1 : 0
+  zone_id = local.zone_id
+  name    = local.mongo_host    # "mongo.usekarma.dev"
   type    = "A"
   alias {
     name                   = aws_lb.obs.dns_name

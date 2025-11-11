@@ -1,8 +1,8 @@
-# ClickHouse & MongoDB Components (EC2) — **Redpanda-ready + S3 Backups + Observability**
+# ClickHouse & MongoDB Components (EC2) — Redpanda-ready + S3 Backups + Observability
 
 ![ClickHouse Component](../../img/clickhouse.drawio.png)
 
-Terraform components to deploy **ClickHouse** and **MongoDB** on EC2 with:
+Terraform components to deploy **ClickHouse** (and optionally **MongoDB**, **Redpanda**, **Kafka Connect**) on EC2 with:
 
 - Dedicated **EBS** data volumes  
 - **IAM role–based backups to Amazon S3** for both ClickHouse and MongoDB  
@@ -11,42 +11,129 @@ Terraform components to deploy **ClickHouse** and **MongoDB** on EC2 with:
 - **systemd–managed bootstrap scripts** and **manual backup helpers**  
 - Optional local **observability bundle**: **Prometheus**, **Grafana**, **Node Exporter**, **ClickHouse /metrics**  
 - Discovery via **SSM Parameter Store** runtime JSON  
+- A **ClickHouse-only mode** that cleanly disables Mongo, Redpanda, and Kafka Connect
+
+---
+
+## Modes & Feature Flags
+
+There are two ways to control whether **MongoDB**, **Redpanda**, and **Kafka Connect** are deployed:
+
+### 1. Config-based mode (default)
+
+In `config.json`:
+
+- `clickhouse_only` – default `false`  
+- `enable_mongo` – default `true`  
+- `enable_redpanda` – default `true`  
+- `enable_kconnect` – default `true`  
+
+When `clickhouse_only = true`:
+
+- `enable_mongo` is forced to `false`
+- `enable_redpanda` is forced to `false`
+- `enable_kconnect` is forced to `false`
+
+### 2. CLI override `-var ch_only=...`
+
+You can override `clickhouse_only` at apply/destroy time:
+
+```bash
+terragrunt apply -var ch_only=true   # Force ClickHouse-only
+terragrunt apply -var ch_only=false  # Force full stack (respect per-feature flags)
+```
+
+Logic:
+
+- If `ch_only` is **not** provided, we use `clickhouse_only` from `config.json`.
+- If `ch_only` **is** provided, it wins over `clickhouse_only`.
+
+Effective flags inside the module (locals):
+
+- `ch_only` – resolved mode (from `ch_only` var or `clickhouse_only`)
+- `enable_mongo` – `false` when `ch_only = true`, otherwise `config.enable_mongo` (default `true`)
+- `enable_redpanda` – `false` when `ch_only = true`, otherwise `config.enable_redpanda` (default `true`)
+- `enable_kconnect` – `false` when `ch_only = true`, otherwise `config.enable_kconnect` (default `true`)
+
+In **ClickHouse-only** mode:
+
+- No **MongoDB** EC2, SG, EBS, or exporters are created
+- No **Redpanda** EC2, SG, EBS, or exporters are created
+- No **Kafka Connect** ECS service / task / SD entries are created
+- User data for ClickHouse receives **empty/zero** values for Mongo/Redpanda/KConnect-related env vars,
+  and the bootstrap scripts skip those integrations.
 
 ---
 
 ## Inputs (from `config.json`)
 
-**Required Infra:**
+### Required Infra
+
 - `vpc_nickname` – VPC component nickname (used to read `/iac/vpc/<nick>/runtime`)
 - `s3_bucket_nickname` – S3 bucket component nickname (used to read `/iac/s3-bucket/<nick>/runtime`)
+- `s3_bucket_prefix` – component prefix (used for backups and scripts)
 - `clickhouse_bucket` – S3 bucket name for ClickHouse assets and backups (e.g., `usekarma.dev-prod`)
 - `clickhouse_prefix` – S3 key prefix (e.g., `clickhouse`); backups stored under `<prefix>/backups/`
 
-**EC2 & Storage:**
+### EC2 & Storage
+
 - `instance_type` – default `m6i.large`
 - `ebs_size_gb` – default `500`
 - `ebs_type` – default `gp3` (`ebs_iops`, `ebs_throughput` supported)
 
-**ClickHouse:**
-- `clickhouse_version` – default `25.10` (tested with 25.10.1)
+### ClickHouse
+
+- `clickhouse_version` – default `24.8` (repo track)
 - `http_port` – default `8123`
 - `tcp_port` – default `9000`
 
-**MongoDB:**
-- `mongo_port` – default `27017`
-- `mongo_backup_prefix` – e.g., `mongo/backups/`
-- `mongo_restore_enable` – default `true` (restores from latest backup on boot)
+### MongoDB (optional, controlled by `enable_mongo` / `clickhouse_only` / `ch_only`)
 
-**Kafka / Redpanda Ingest:**
-- `redpanda_enable` – default `true` (deploys single-node Redpanda EC2 in same VPC)
+- `mongo_enable` – default `true` (ignored when `clickhouse_only = true` or `ch_only = true`)
+- `mongo_instance_type` – default `r6i.large`
+- `mongo_volume_gb` – default `300`
+- `mongo_port` – default `27017`
+- `mongo_major` – default `"7.0"`
+- `mongo_rs_name` – default `"rs0"`
+- `mongo_allowed_security_group_ids` – optional list of extra SG IDs that may connect to Mongo
+- `mongo_allowed_cidrs` – optional CIDR allowlist (for admin / jump hosts)
+
+Mongo backups share the main `s3_bucket_prefix`, under:
+
+- `<prefix>/backups/dump-YYYYMMDDTHHMMSSZ/`
+
+### Kafka / Redpanda Ingest (optional, controlled by `enable_redpanda` / `clickhouse_only` / `ch_only`)
+
+- `redpanda_enable` – default `true` (ignored when `clickhouse_only = true` or `ch_only = true`)
+- `redpanda_instance_type` – default `c6i.large`
+- `redpanda_volume_gb` – default `200`
+- `redpanda_port` – default `9092`
+- `redpanda_admin_port` – default `9644`
 - `redpanda_topic` – default `clickhouse_ingest`
 - `redpanda_partitions` – default `3`
 - `redpanda_retention_ms` – default `604800000` (7 days)
 
-**Observability (optional):**
+### Kafka Connect / Debezium (optional, controlled by `enable_kconnect` / `clickhouse_only` / `ch_only`)
+
+- `enable_kconnect` – default `true` (ignored when `clickhouse_only = true` or `ch_only = true`)
+- `ecs_cluster_nickname` – existing ECS cluster runtime in SSM
+- `kconnect_service_name` – default `svc-<nickname>`
+- `kconnect_cpu` – default `1024`
+- `kconnect_memory` – default `2048`
+- `kconnect.image` – default `quay.io/debezium/connect:3.3.1.Final`
+- Internal topics / group IDs (optional overrides):
+  - `kconnect_group_id`
+  - `kconnect_config_topic`
+  - `kconnect_offset_topic`
+  - `kconnect_status_topic`
+
+### Observability (optional; independent of ClickHouse-only mode)
+
 - `enable_observability` – default `true`
-- `prometheus_version` – default `2.53.1`
-- `node_exporter_version` – default `1.8.2`
+- `prometheus_ver` – default `2.54.1`
+- `nodeexp_ver` – default `1.8.1`
+
+Observability can stay **on** even in ClickHouse-only mode (you still get Prometheus + Grafana on the ClickHouse node).
 
 ---
 

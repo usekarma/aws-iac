@@ -3,8 +3,6 @@ locals {
   ecs_cluster          = try(jsondecode(data.aws_ssm_parameter.ecs_cluster_runtime.value), {})
   ecs_cluster_arn      = try(local.ecs_cluster.cluster_arn, null)
 
-  enable_kconnect = try(local.config.enable_kconnect, true)
-
   kconnect_service_name     = try(local.config.kconnect_service_name, "svc-${var.nickname}")
   kconnect_desired_count    = try(local.config.kconnect_desired_count, 1)
   kconnect_cpu              = try(local.config.kconnect_cpu, 1024)
@@ -17,7 +15,13 @@ locals {
   kconnect_image     = try(local.kconnect.image, "quay.io/debezium/connect:3.3.1.Final")
   kconnect_rest_port = try(local.kconnect.port, 8083)
 
-  kconnect_rest_host    = "${aws_service_discovery_service.kconnect.name}.${aws_service_discovery_private_dns_namespace.kconnect.name}"
+  # Only construct REST host when KConnect is enabled (single-line ternary)
+  kconnect_rest_host = local.enable_kconnect ? format(
+    "%s.%s",
+    aws_service_discovery_service.kconnect[0].name,
+    aws_service_discovery_private_dns_namespace.kconnect[0].name
+  ) : ""
+
   kconnect_metrics_port = try(local.kconnect.port, 9404)
 
   # Construct default ECR fallback URI dynamically
@@ -47,6 +51,7 @@ data "aws_iam_policy_document" "task_execution_assume" {
 }
 
 resource "aws_security_group" "kconnect" {
+  count       = local.enable_kconnect ? 1 : 0
   name_prefix = "${local.kconnect_service_name}-sg-"
   description = "Security group for ${local.kconnect_service_name} ECS service"
   vpc_id      = local.vpc.vpc_id
@@ -81,13 +86,15 @@ resource "aws_security_group" "kconnect" {
 }
 
 resource "aws_iam_role" "task_execution" {
+  count              = local.enable_kconnect ? 1 : 0
   name_prefix        = "${local.kconnect_service_name}-exec-"
   assume_role_policy = data.aws_iam_policy_document.task_execution_assume.json
   tags               = local.tags
 }
 
 resource "aws_iam_role_policy_attachment" "task_exec_attach" {
-  role       = aws_iam_role.task_execution.name
+  count      = local.enable_kconnect ? 1 : 0
+  role       = aws_iam_role.task_execution[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
@@ -103,6 +110,7 @@ data "aws_iam_policy_document" "task_assume" {
 }
 
 resource "aws_iam_role" "task" {
+  count              = local.enable_kconnect ? 1 : 0
   name_prefix        = "${local.kconnect_service_name}-task-"
   assume_role_policy = data.aws_iam_policy_document.task_assume.json
   tags               = local.tags
@@ -110,6 +118,7 @@ resource "aws_iam_role" "task" {
 
 # ---------- Logs ----------
 resource "aws_cloudwatch_log_group" "kconnect" {
+  count             = local.enable_kconnect ? 1 : 0
   name              = "/ecs/${local.kconnect_service_name}"
   retention_in_days = local.kconnect_log_retention_days
   tags              = local.tags
@@ -117,6 +126,7 @@ resource "aws_cloudwatch_log_group" "kconnect" {
 
 # ---------- ECS Service ----------
 resource "aws_ecs_service" "kconnect" {
+  count            = local.enable_kconnect ? 1 : 0
   name             = local.kconnect_service_name
   cluster          = local.ecs_cluster_arn
   desired_count    = local.kconnect_desired_count
@@ -125,15 +135,15 @@ resource "aws_ecs_service" "kconnect" {
 
   network_configuration {
     subnets          = local.vpc.private_subnet_ids
-    security_groups  = [local.vpc.default_sg_id, aws_security_group.kconnect.id]
+    security_groups  = [local.vpc.default_sg_id, aws_security_group.kconnect[0].id]
     assign_public_ip = local.kconnect_assign_public_ip
   }
 
   service_registries {
-    registry_arn = aws_service_discovery_service.kconnect.arn
+    registry_arn = aws_service_discovery_service.kconnect[0].arn
   }
 
-  task_definition = aws_ecs_task_definition.kconnect.arn
+  task_definition = aws_ecs_task_definition.kconnect[0].arn
   propagate_tags  = "SERVICE"
 
   lifecycle {
@@ -144,13 +154,14 @@ resource "aws_ecs_service" "kconnect" {
 }
 
 resource "aws_ecs_task_definition" "kconnect" {
+  count                    = local.enable_kconnect ? 1 : 0
   family                   = local.kconnect_service_name
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = tostring(local.kconnect_cpu)    # 1024
   memory                   = tostring(local.kconnect_memory) # 2048
-  execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  execution_role_arn       = aws_iam_role.task_execution[0].arn
+  task_role_arn            = aws_iam_role.task[0].arn
 
   container_definitions = jsonencode([
     {
@@ -247,7 +258,7 @@ resource "aws_ecs_task_definition" "kconnect" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.kconnect.name
+          awslogs-group         = aws_cloudwatch_log_group.kconnect[0].name
           awslogs-region        = data.aws_region.current.id
           awslogs-stream-prefix = "ecs"
         }
@@ -268,7 +279,7 @@ resource "aws_ecs_task_definition" "kconnect" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.kconnect.name
+          awslogs-group         = aws_cloudwatch_log_group.kconnect[0].name
           awslogs-region        = data.aws_region.current.id
           awslogs-stream-prefix = "ecs-metrics"
         }
@@ -281,6 +292,7 @@ resource "aws_ecs_task_definition" "kconnect" {
 
 # Private DNS namespace for service discovery
 resource "aws_service_discovery_private_dns_namespace" "kconnect" {
+  count       = local.enable_kconnect ? 1 : 0
   name        = "svc.usekarma.local"
   description = "Service discovery namespace for data-plane services"
   vpc         = local.vpc_id
@@ -291,10 +303,11 @@ resource "aws_service_discovery_private_dns_namespace" "kconnect" {
 }
 
 resource "aws_service_discovery_service" "kconnect" {
-  name = "kconnect"
+  count = local.enable_kconnect ? 1 : 0
+  name  = "kconnect"
 
   dns_config {
-    namespace_id = aws_service_discovery_private_dns_namespace.kconnect.id
+    namespace_id = aws_service_discovery_private_dns_namespace.kconnect[0].id
 
     dns_records {
       type = "A"

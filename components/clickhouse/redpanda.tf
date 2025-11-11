@@ -1,5 +1,4 @@
 locals {
-  redpanda_enable        = try(local.config.redpanda_enable, true)
   redpanda_instance_type = try(local.config.redpanda_instance_type, "c6i.large")
   redpanda_volume_gb     = try(local.config.redpanda_volume_gb, 200)
   redpanda_iops          = try(local.config.redpanda_iops, 3000)
@@ -16,10 +15,11 @@ locals {
 
 # SG for Redpanda
 resource "aws_security_group" "redpanda" {
-  count       = local.redpanda_enable ? 1 : 0
+  count       = local.enable_redpanda ? 1 : 0
   name        = "${var.nickname}-sg-redpanda"
   description = "Redpanda broker (PLAINTEXT in VPC)"
   vpc_id      = local.vpc_id
+
   egress = [{
     cidr_blocks      = ["0.0.0.0/0"],
     description      = "all egress",
@@ -31,11 +31,13 @@ resource "aws_security_group" "redpanda" {
     security_groups  = null,
     self             = null
   }]
+
   tags = merge(local.tags, { Role = "redpanda", Name = "${var.nickname}-sg-redpanda" })
 }
 
 # Allow HTTPS between instance SGs and default SG
 resource "aws_vpc_security_group_ingress_rule" "ssm_endpoints_from_redpanda" {
+  count                        = local.enable_redpanda ? 1 : 0
   security_group_id            = local.vpc_sg_id
   referenced_security_group_id = aws_security_group.redpanda[0].id
   ip_protocol                  = "tcp"
@@ -46,7 +48,7 @@ resource "aws_vpc_security_group_ingress_rule" "ssm_endpoints_from_redpanda" {
 
 # Allow ClickHouse (and optionally Connect) to reach Redpanda 9092
 resource "aws_vpc_security_group_ingress_rule" "redpanda_from_clickhouse_9092" {
-  count                        = local.redpanda_enable ? 1 : 0
+  count                        = local.enable_redpanda ? 1 : 0
   security_group_id            = aws_security_group.redpanda[0].id
   referenced_security_group_id = local.vpc_sg_id
   ip_protocol                  = "tcp"
@@ -55,20 +57,9 @@ resource "aws_vpc_security_group_ingress_rule" "redpanda_from_clickhouse_9092" {
   description                  = "ClickHouse to Redpanda 9092"
 }
 
-# (Optional) allow Connect SG on 9092 if you have one
-# resource "aws_vpc_security_group_ingress_rule" "redpanda_from_connect_9092" {
-#   count                        = local.redpanda_enable && contains(keys(local.allowed_sg_ids), "connect") ? 1 : 0
-#   security_group_id            = aws_security_group.redpanda[0].id
-#   referenced_security_group_id = aws_security_group.connect.id
-#   ip_protocol                  = "tcp"
-#   from_port                    = local.redpanda_port
-#   to_port                      = local.redpanda_port
-#   description                  = "Connect to Redpanda 9092"
-# }
-
 # Admin port (9644) from ClickHouse SG (optional)
 resource "aws_vpc_security_group_ingress_rule" "redpanda_admin_from_clickhouse" {
-  count                        = local.redpanda_enable ? 1 : 0
+  count                        = local.enable_redpanda ? 1 : 0
   security_group_id            = aws_security_group.redpanda[0].id
   referenced_security_group_id = aws_security_group.clickhouse.id
   ip_protocol                  = "tcp"
@@ -78,7 +69,7 @@ resource "aws_vpc_security_group_ingress_rule" "redpanda_admin_from_clickhouse" 
 }
 
 resource "aws_vpc_security_group_ingress_rule" "redpanda_node_exporter" {
-  count                        = local.redpanda_enable ? 1 : 0
+  count                        = local.enable_redpanda ? 1 : 0
   security_group_id            = aws_security_group.redpanda[0].id
   referenced_security_group_id = aws_security_group.clickhouse.id
   ip_protocol                  = "tcp"
@@ -89,7 +80,7 @@ resource "aws_vpc_security_group_ingress_rule" "redpanda_node_exporter" {
 
 # EBS volume (data)
 resource "aws_ebs_volume" "redpanda_data" {
-  count             = local.redpanda_enable ? 1 : 0
+  count             = local.enable_redpanda ? 1 : 0
   availability_zone = data.aws_subnet.chosen.availability_zone
   size              = local.redpanda_volume_gb
   type              = "gp3"
@@ -101,7 +92,7 @@ resource "aws_ebs_volume" "redpanda_data" {
 
 # Redpanda EC2
 resource "aws_instance" "redpanda" {
-  count                       = local.redpanda_enable ? 1 : 0
+  count                       = local.enable_redpanda ? 1 : 0
   ami                         = data.aws_ami.al2023.id
   instance_type               = local.redpanda_instance_type
   subnet_id                   = local.subnet_id
@@ -151,7 +142,7 @@ resource "aws_instance" "redpanda" {
 }
 
 resource "aws_volume_attachment" "redpanda_data" {
-  count       = local.redpanda_enable ? 1 : 0
+  count       = local.enable_redpanda ? 1 : 0
   device_name = "/dev/xvdb"
   volume_id   = aws_ebs_volume.redpanda_data[0].id
   instance_id = aws_instance.redpanda[0].id
