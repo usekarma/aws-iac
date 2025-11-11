@@ -1,28 +1,10 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 exec > >(tee -a /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
-echo "[userdata] start $(date -Is)"
 
-# ------------- Timing helpers -----------------
 SCRIPT_START_EPOCH=$(date +%s)
-STEP_START_EPOCH=$SCRIPT_START_EPOCH
-
-log_step() {
-  local label="$1"
-  local now_epoch
-  now_epoch=$(date +%s)
-  local now_iso
-  now_iso=$(date -Is)
-  local total=$$((now_epoch - SCRIPT_START_EPOCH))
-  local delta=$$((now_epoch - STEP_START_EPOCH))
-  echo "[userdata-clickhosue:obs][TIME] $${now_iso} $${label}: +$${delta}s (total $${total}s)"
-  STEP_START_EPOCH=$$now_epoch
-}
-
-# make xtrace lines include timestamps + location
-export PS4='+ $(date -Is) [$${BASH_SOURCE}:$${LINENO}] '
-
-log_step "script entry"
+echo "[userdata] start $(date -Is)"
+echo "[userdata:time] $(date -Is) script entry: 0s since start"
 
 # ---------------- Inputs from Terraform ----------------
 export EBS_DEV="${EBS_DEVICE}"                     # "" => auto-pick largest non-root NVMe
@@ -53,11 +35,12 @@ export NODEEXP_VER="${NODEEXP_VER}"                # e.g., 1.8.2
 
 export GRAFANA_DASHBOARD_KEY="${GRAFANA_DASHBOARD_KEY}"
 
-log_step "env vars bound from Terraform"
-
 # ---------------- Wait for basic network ----------------
-for i in {1..30}; do curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2; done
-log_step "basic network ready (curl aws.amazon.com)"
+for i in {1..30}; do
+  curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2
+done
+now=$(date +%s)
+echo "[userdata:time] $(date -Is) after basic network: $((now - SCRIPT_START_EPOCH))s since start"
 
 # ---------------- Detect package manager / distro -------
 PM=""
@@ -73,7 +56,8 @@ else
 fi
 
 export PM
-log_step "detected distro=$DISTRO pm=$PM"
+now=$(date +%s)
+echo "[userdata:time] $(date -Is) after distro detect: $((now - SCRIPT_START_EPOCH))s since start"
 
 # ---------------- Install & start SSM -------------------
 if [[ "$PM" == "apt" ]]; then
@@ -86,7 +70,8 @@ else
 fi
 systemctl enable --now amazon-ssm-agent
 systemctl is-active --quiet amazon-ssm-agent
-log_step "amazon-ssm-agent installed and active"
+now=$(date +%s)
+echo "[userdata:time] $(date -Is) after SSM install: $((now - SCRIPT_START_EPOCH))s since start"
 
 # ---------------- Core tools ----------------------------
 if [[ "$PM" == "apt" ]]; then
@@ -94,7 +79,8 @@ if [[ "$PM" == "apt" ]]; then
 else
   $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd gzip tar nmap-ncat --skip-broken || true
 fi
-log_step "core tools installed (jq/awscli/xfsprogs/etc)"
+now=$(date +%s)
+echo "[userdata:time] $(date -Is) after core tools: $((now - SCRIPT_START_EPOCH))s since start"
 
 # ---------------- Optional: pick & mount data disk -------
 if [[ -n "$MNT" ]]; then
@@ -130,13 +116,13 @@ if [[ -n "$MNT" ]]; then
     grep -q "$UUID" /etc/fstab || echo "UUID=$UUID  $MNT  xfs  defaults,nofail  0  2" >> /etc/fstab
     mount -a
     mountpoint -q "$MNT"
-    log_step "data disk $DATA_DEV formatted/mounted at $MNT"
+    now=$(date +%s)
+    echo "[userdata:time] $(date -Is) after data disk mount ($DATA_DEV -> $MNT): $((now - SCRIPT_START_EPOCH))s since start"
   else
     echo "WARN: No data disk found; ClickHouse will use default /var/lib/clickhouse" >&2
-    log_step "no data disk found; using default /var/lib/clickhouse"
+    now=$(date +%s)
+    echo "[userdata:time] $(date -Is) no data disk found: $((now - SCRIPT_START_EPOCH))s since start"
   fi
-else
-  log_step "MNT empty; skipping data disk mount"
 fi
 
 # ---------------- Install ClickHouse --------------------
@@ -153,7 +139,8 @@ else
   $PM -y makecache || true
   $PM -y install clickhouse-server clickhouse-client
 fi
-log_step "clickhouse-server and clickhouse-client installed"
+now=$(date +%s)
+echo "[userdata:time] $(date -Is) after ClickHouse install: $((now - SCRIPT_START_EPOCH))s since start"
 
 # ---------------- Configure data path & ports -----------
 systemctl stop clickhouse-server || true
@@ -186,8 +173,6 @@ cat >/etc/clickhouse-server/config.d/20-network.xml <<EOF
 </clickhouse>
 EOF
 
-log_step "clickhouse data path + ports configured (TARGET_PATH=$TARGET_PATH)"
-
 # ---------------- Systemd region env (optional) ---------
 mkdir -p /etc/systemd/system/clickhouse-server.service.d
 cat >/etc/systemd/system/clickhouse-server.service.d/aws-env.conf <<EOF
@@ -195,7 +180,6 @@ cat >/etc/systemd/system/clickhouse-server.service.d/aws-env.conf <<EOF
 Environment=AWS_REGION=${AWS_REGION}
 Environment=AWS_DEFAULT_REGION=${AWS_REGION}
 EOF
-log_step "systemd AWS env drop-in written"
 
 # ---------------- Conditionally add S3 disk -------------
 if [[ -n "${AWS_REGION}" && -n "${CLICKHOUSE_BUCKET}" && -n "${CLICKHOUSE_PREFIX}" ]]; then
@@ -218,13 +202,14 @@ if [[ -n "${AWS_REGION}" && -n "${CLICKHOUSE_BUCKET}" && -n "${CLICKHOUSE_PREFIX
 </clickhouse>
 EOF
   chmod 0644 /etc/clickhouse-server/config.d/30-s3-backup.xml
-  log_step "s3_backups disk configured for clickhouse"
+  now=$(date +%s)
+  echo "[userdata:time] $(date -Is) after s3_backups disk config: $((now - SCRIPT_START_EPOCH))s since start"
 else
   echo "[userdata] Skipping S3 disk: require AWS_REGION, CLICKHOUSE_BUCKET, CLICKHOUSE_PREFIX"
-  log_step "s3_backups disk config skipped (no AWS config)"
 fi
 
 # ---------------- Validate config & start ---------------
+mkdir -p /var.lib/clickhouse /var/log/clickhouse-server || true
 mkdir -p /var/lib/clickhouse /var/log/clickhouse-server
 chown -R clickhouse:clickhouse /var/lib/clickhouse /var/log/clickhouse-server
 
@@ -248,7 +233,8 @@ if ! systemctl enable --now clickhouse-server 2>/tmp/ch-enable.err; then
            /etc/systemd/system/multi-user.target.wants/clickhouse-server.service
     systemctl start clickhouse-server
   else
-    echo "[userdata] systemctl enable failed:"; cat /tmp/ch-enable.err
+    echo "[userdata] systemctl enable failed:"
+    cat /tmp/ch-enable.err
   fi
 fi
 rm -f /tmp/ch-enable.err || true
@@ -256,13 +242,13 @@ rm -f /tmp/ch-enable.err || true
 if ! systemctl is-active --quiet clickhouse-server; then
   echo "[userdata] ERROR: clickhouse-server not active"
   journalctl -u clickhouse-server -n 200 --no-pager || true
-  log_step "clickhouse-server FAILED to become active"
   exit 1
 fi
 
 ss -lntp | egrep '(:8123|:9000|:9009)' || true
 clickhouse-client -q "SELECT version(), now()"
-log_step "clickhouse-server active and responding (ports + version check)"
+now=$(date +%s)
+echo "[userdata:time] $(date -Is) after ClickHouse up and responding: $((now - SCRIPT_START_EPOCH))s since start"
 
 # ---------------- ClickHouse restore-from-S3 (latest manual-*, once) ---
 RESTORE_MARKER="/var/local/clickhouse_manual_restore_done"
@@ -270,7 +256,6 @@ RESTORE_MARKER="/var/local/clickhouse_manual_restore_done"
 if [[ -n "${AWS_REGION}" && -n "${CLICKHOUSE_BUCKET}" && -n "${CLICKHOUSE_PREFIX}" ]]; then
   if [[ -f "$RESTORE_MARKER" ]]; then
     echo "[userdata] ClickHouse manual restore already performed; skipping."
-    log_step "ClickHouse restore-from-S3 skipped (marker present)"
   else
     echo "[userdata] Looking for latest manual-* ClickHouse backup in S3..."
     # Expect folders like: manual-20251109T123456Z/
@@ -291,20 +276,18 @@ if [[ -n "${AWS_REGION}" && -n "${CLICKHOUSE_BUCKET}" && -n "${CLICKHOUSE_PREFIX
           FROM Disk('s3_backups', '$LATEST_CH_BACKUP')
           SETTINGS allow_non_empty_tables = 1;
         " && touch "$RESTORE_MARKER" || echo "[userdata] WARNING: ClickHouse RESTORE failed"
-        log_step "ClickHouse RESTORE attempted from $LATEST_CH_BACKUP"
       else
         echo "[userdata] s3_backups disk not present in system.disks; skipping restore."
-        log_step "ClickHouse RESTORE skipped (no s3_backups disk)"
       fi
     else
       echo "[userdata] No manual-* ClickHouse backups found in S3; starting fresh."
-      log_step "ClickHouse RESTORE skipped (no manual-* backup)"
     fi
   fi
 else
   echo "[userdata] Skipping ClickHouse restore check (need AWS_REGION/CLICKHOUSE_BUCKET/CLICKHOUSE_PREFIX)"
-  log_step "ClickHouse restore check skipped (no AWS config)"
 fi
+now=$(date +%s)
+echo "[userdata:time] $(date -Is) after ClickHouse restore section: $((now - SCRIPT_START_EPOCH))s since start"
 
 # ---------------- Manual backup script (no timer) -------
 install -m 0755 -d /usr/local/bin
@@ -328,14 +311,16 @@ echo "Created ClickHouse BACKUP DATABASE default TO Disk('s3_backups', 'manual-$
 EOF
 chmod +x /usr/local/bin/clickhouse-backup.sh
 echo "[userdata] Manual ClickHouse backup script installed at /usr/local/bin/clickhouse-backup.sh"
-log_step "clickhouse-backup.sh installed"
+now=$(date +%s)
+echo "[userdata:time] $(date -Is) after backup script install: $((now - SCRIPT_START_EPOCH))s since start"
 
 # Run Prometheus/Grafana bootstrap script
 echo "[userdata] downloading Prometheus-Grafana bootstrap script from S3..."
 aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/prometheus-grafana-bootstrap.sh" /usr/local/bin/prometheus-grafana-bootstrap.sh
 chmod +x /usr/local/bin/prometheus-grafana-bootstrap.sh
 /usr/local/bin/prometheus-grafana-bootstrap.sh > /var/log/prometheus-grafana-bootstrap.log 2>&1
-log_step "prometheus-grafana-bootstrap.sh executed"
+now=$(date +%s)
+echo "[userdata:time] $(date -Is) after Prometheus/Grafana bootstrap: $((now - SCRIPT_START_EPOCH))s since start"
 
 # ---- Quick logs / ports ----
 ss -lntp | egrep '(:9090|:3000|:9100|:9363)' || true
@@ -346,9 +331,11 @@ curl -fsS "http://${MONGO_HOST}:${MONGO_EXP_PORT}/metrics" | head -n 3 || true
 curl -fsS "http://${REDPANDA_HOST}:${REDPANDA_EXP_PORT}/metrics" | head -n 3 || true
 curl -fsS "http://${MONGO_HOST}:${MONGO_NODE_PORT}/metrics" | head -n 3 || true
 curl -fsS "http://${REDPANDA_HOST}:${REDPANDA_NODE_PORT}/metrics" | head -n 3 || true
-log_step "observability checks and remote metrics curls"
+now=$(date +%s)
+echo "[userdata:time] $(date -Is) after observability reachability checks: $((now - SCRIPT_START_EPOCH))s since start"
 
 # ---------------- Marker -------------------------------
 echo "$(date -u +%FT%TZ) BOOTSTRAP_OK" > "$MARKER_FILE"
 echo "[userdata] done $(date -Is)"
-log_step "script complete (BOOTSTRAP_OK written)"
+now=$(date +%s)
+echo "[userdata:time] $(date -Is) script complete: $((now - SCRIPT_START_EPOCH))s since start"

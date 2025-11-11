@@ -3,27 +3,6 @@ set -euxo pipefail
 exec > >(tee -a /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 echo "[userdata-mongo] start $(date -Is)"
 
-# ------------- Timing helpers -----------------
-SCRIPT_START_EPOCH=$(date +%s)
-STEP_START_EPOCH=$SCRIPT_START_EPOCH
-
-log_step() {
-  local label="$1"
-  local now_epoch
-  now_epoch=$(date +%s)
-  local now_iso
-  now_iso=$(date -Is)
-  local total=$$((now_epoch - SCRIPT_START_EPOCH))
-  local delta=$$((now_epoch - STEP_START_EPOCH))
-  echo "[userdata-mongo:obs][TIME] $${now_iso} $${label}: +$${delta}s (total $${total}s)"
-  STEP_START_EPOCH=$$now_epoch
-}
-
-# make xtrace lines include timestamps + location
-export PS4='+ $(date -Is) [$${BASH_SOURCE}:$${LINENO}] '
-
-log_step "script entry"
-
 # ---------------- Inputs from Terraform (bind once) ----
 export EBS_DEV="${EBS_DEVICE}"                      # "" => auto-pick largest non-root NVMe
 export MNT="${MOUNT_POINT}"                         # e.g., "/var/lib/mongo"
@@ -39,13 +18,10 @@ export RS_NAME="${RS_NAME}"
 export NODE_EXPORTER_VERSION="${NODE_EXPORTER_VERSION}"
 export MONGODB_EXPORTER_VERSION="${MONGODB_EXPORTER_VERSION}"
 
-log_step "env vars bound from Terraform"
-
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do
   curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2
 done
-log_step "basic network ready (curl aws.amazon.com)"
 
 # ---------------- Detect package manager / distro -------
 PM=""
@@ -60,7 +36,6 @@ else
   echo "ERROR: No supported package manager found (dnf/yum/apt)" >&2
   exit 1
 fi
-log_step "detected distro=$DISTRO pm=$PM"
 
 # ---------------- Install & start SSM -------------------
 if [[ "$PM" == "apt" ]]; then
@@ -73,7 +48,6 @@ else
 fi
 systemctl enable --now amazon-ssm-agent
 systemctl is-active --quiet amazon-ssm-agent
-log_step "amazon-ssm-agent installed and active"
 
 # ---------------- Core tools ----------------------------
 if [[ "$PM" == "apt" ]]; then
@@ -81,7 +55,6 @@ if [[ "$PM" == "apt" ]]; then
 else
   $PM -y install ca-certificates jq rsync xfsprogs dnf-plugins-core awscli zstd nmap-ncat --skip-broken || true
 fi
-log_step "core tools installed (jq/awscli/xfsprogs/etc)"
 
 # ---------------- Optional: pick & mount data disk -------
 if [[ -n "$MNT" ]]; then
@@ -117,13 +90,9 @@ if [[ -n "$MNT" ]]; then
     grep -q "$UUID" /etc/fstab || echo "UUID=$UUID  $MNT  xfs  defaults,nofail  0  2" >> /etc/fstab
     mount -a
     mountpoint -q "$MNT"
-    log_step "data disk $DATA_DEV formatted/mounted at $MNT"
   else
     echo "WARN: No data disk found; MongoDB will use default /var/lib/mongo" >&2
-    log_step "no data disk found; using default /var/lib/mongo"
   fi
-else
-  log_step "MNT empty; skipping data disk mount"
 fi
 
 # ---------------- Install MongoDB -----------------------
@@ -160,7 +129,6 @@ elif [[ "$DISTRO" == "ubuntu" ]]; then
   apt-get update -y
   apt-get install -y mongodb-org netcat-openbsd
 fi
-log_step "mongodb-org installed"
 
 # ---------------- Configure mongod ----------------------
 mkdir -p /var/lib/mongo /var/log/mongodb
@@ -197,7 +165,6 @@ systemctl enable --now mongod
 for i in {1..60}; do
   nc -z 127.0.0.1 "$${MONGO_PORT}" && break || sleep 1
 done
-log_step "mongod service started and listening on $MONGO_PORT"
 
 # Install mongosh client if not present (usually included with mongodb-org)
 if ! command -v mongosh >/dev/null 2>&1; then
@@ -207,7 +174,6 @@ if ! command -v mongosh >/dev/null 2>&1; then
     $PM -y install mongodb-mongosh || true
   fi
 fi
-log_step "mongosh client ensured installed"
 
 # ---------- Robust single-node replica set init ----------
 PRIV_IP="$(curl -fsS http://169.254.169.254/latest/meta-data/local-ipv4 || hostname -I | awk '{print $1}')"
@@ -253,7 +219,6 @@ mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}/admin?directConnection=true"
   }
 })();
 EOF_RS_INIT
-log_step "replica set init attempted (rs.initiate / rs.status)"
 
 # 2) Wait until this node is PRIMARY (or time out) before continuing.
 mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}/admin?directConnection=true" <<'EOF_RS_WAIT' || true
@@ -275,12 +240,10 @@ mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}/admin?directConnection=true"
   print("[userdata-mongo] WARNING: node did not become PRIMARY within timeout; continuing anyway.");
 })();
 EOF_RS_WAIT
-log_step "replica set PRIMARY wait completed"
 
 # Health checks
 mongosh --quiet "mongodb://127.0.0.1:$${MONGO_PORT}" --eval "db.adminCommand({ping:1})" || true
 systemctl status mongod --no-pager || true
-log_step "mongod ping + status checks"
 
 # ---------------- Mongo restore-or-init from S3 (latest dump-*, once) ----
 RESTORE_MARKER="/var/local/mongo_manual_restore_done"
@@ -288,7 +251,6 @@ RESTORE_MARKER="/var/local/mongo_manual_restore_done"
 if [[ -n "$AWS_REGION" && -n "$CLICKHOUSE_BUCKET" && -n "$CLICKHOUSE_PREFIX" ]]; then
   if [[ -f "$RESTORE_MARKER" ]]; then
     echo "[userdata-mongo] Mongo manual restore already performed; skipping."
-    log_step "mongo restore-from-S3 skipped (marker present)"
   else
     echo "[userdata-mongo] Looking for latest dump-* Mongo backup in S3..."
     # Expect prefixes like: dump-20251109T123456Z/
@@ -306,7 +268,6 @@ if [[ -n "$AWS_REGION" && -n "$CLICKHOUSE_BUCKET" && -n "$CLICKHOUSE_PREFIX" ]];
         || echo "[userdata-mongo] WARNING: mongorestore failed"
       rm -rf /tmp/mongo-restore
       echo "[userdata-mongo] Mongo restore-from-backup flow completed."
-      log_step "mongo restore-from-S3 completed ($LATEST_BACKUP)"
     else
       echo "[userdata-mongo] No dump-* backup found, bootstrapping schema via init-sales-db.js..."
       aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema/init-sales-db.js" /usr/local/bin/init-sales-db.js
@@ -317,19 +278,16 @@ if [[ -n "$AWS_REGION" && -n "$CLICKHOUSE_BUCKET" && -n "$CLICKHOUSE_PREFIX" ]];
       else
         echo "[userdata-mongo] ERROR: init-sales-db.js not found or empty; skipping schema init"
       fi
-      log_step "mongo init-sales-db.js bootstrap path completed (no backup)"
     fi
   fi
 else
   echo "[userdata-mongo] Skipping Mongo restore/init (need AWS_REGION/CLICKHOUSE_BUCKET/CLICKHOUSE_PREFIX)"
-  log_step "mongo restore/init skipped (no AWS config)"
 fi
 
 # ---------------- Download seed-sales-data.js (manual run) ---------------
 echo "[userdata-mongo] Downloading seed-sales-data.js from S3..."
 aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema/seed-sales-data.js" /usr/local/bin/seed-sales-data.js \
   || echo "[userdata-mongo] WARNING: failed to download seed-sales-data.js"
-log_step "seed-sales-data.js download attempted"
 
 # ---------------- Exporters (Mongo & Node) ---------------
 # Detect arch for GitHub release assets
@@ -395,7 +353,6 @@ systemctl enable --now node_exporter mongodb_exporter
 # Sanity checks (non-fatal)
 curl -fsS http://127.0.0.1:9100/metrics | head -n 5 || true
 curl -fsS http://127.0.0.1:9216/metrics | head -n 5 || true
-log_step "exporters installed and started (node_exporter/mongodb_exporter)"
 
 # ---------------- Manual S3 backup script (no timer) ----
 if [[ -n "$AWS_REGION" && -n "$CLICKHOUSE_BUCKET" && -n "$CLICKHOUSE_PREFIX" ]]; then
@@ -418,52 +375,11 @@ echo "[mongo-backup] Backup complete: s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PRE
 BKS
   chmod +x /usr/local/bin/mongo-backup-s3.sh
   echo "[userdata-mongo] Manual backup script installed at /usr/local/bin/mongo-backup-s3.sh"
-  log_step "mongo-backup-s3.sh installed"
 else
   echo "[userdata-mongo] Skipping backup script install (need AWS_REGION/CLICKHOUSE_BUCKET/CLICKHOUSE_PREFIX)"
-  log_step "backup script install skipped (no AWS config)"
 fi
-
-# ---------------- Mongo Express (web client) -----------------
-echo "[userdata-mongo] Installing mongo-express web client..."
-
-# Install Docker if not present
-if ! command -v docker >/dev/null 2>&1; then
-  if [[ "$PM" == "apt" ]]; then
-    apt-get install -y docker.io
-  else
-    $PM -y install docker
-  fi
-  log_step "docker package installed"
-fi
-
-# Ensure Docker is running
-systemctl enable --now docker || true
-log_step "docker daemon enabled/started"
-
-# Run mongo-express container (host network so 127.0.0.1:27017 is the host mongod)
-docker rm -f mongo-express >/dev/null 2>&1 || true
-docker run -d \
-  --name mongo-express \
-  --restart=always \
-  --network=host \
-  -e ME_CONFIG_MONGODB_URL="mongodb://127.0.0.1:${MONGO_PORT}" \
-  -e ME_CONFIG_MONGODB_ENABLE_ADMIN=true \
-  -e ME_CONFIG_BASICAUTH_USERNAME="admin" \
-  -e ME_CONFIG_BASICAUTH_PASSWORD="admin" \
-  mongo-express:latest
-log_step "mongo-express container created (docker run)"
-
-# Wait for UI to start
-for i in {1..30}; do
-  nc -z 127.0.0.1 8081 && break || sleep 1
-done
-echo "[userdata-mongo] mongo-express listening on port 8081"
-log_step "mongo-express UI reachable on 8081"
 
 # ---------------- Marker -------------------------------
 echo "$(date -u +%FT%TZ) BOOTSTRAP_OK" > "$MARKER_FILE"
-log_step "BOOTSTRAP_OK marker written"
 
 echo "[userdata-mongo] done $(date -Is)"
-log_step "script complete"

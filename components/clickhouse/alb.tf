@@ -115,7 +115,7 @@ resource "aws_security_group" "alb" {
   tags = local.tags
 }
 
-# ---------- Allow ALB → instance app ports ----------
+# ---------- Allow ALB → instance / task app ports ----------
 resource "aws_vpc_security_group_ingress_rule" "from_alb_grafana" {
   security_group_id            = aws_security_group.clickhouse.id
   referenced_security_group_id = aws_security_group.alb.id
@@ -143,18 +143,6 @@ resource "aws_vpc_security_group_ingress_rule" "from_alb_clickhouse" {
   description                  = "ALB to ClickHouse HTTP"
 }
 
-# Allow ALB → Mongo instance (mongo-express) on 8081
-resource "aws_vpc_security_group_ingress_rule" "from_alb_mongo_express" {
-  count = local.enable_mongo ? 1 : 0
-
-  security_group_id            = aws_security_group.mongo[0].id
-  referenced_security_group_id = aws_security_group.alb.id
-  ip_protocol                  = "tcp"
-  from_port                    = 8081
-  to_port                      = 8081
-  description                  = "ALB to mongo-express"
-}
-
 # ---------- ALB ----------
 resource "aws_lb" "obs" {
   name               = local.alb_name
@@ -167,16 +155,15 @@ resource "aws_lb" "obs" {
 }
 
 # ---------- Target Groups (HTTP; ALB terminates TLS) ----------
-# Use name_prefix to avoid 32-char TG name limit. Explicit matchers & target_type.
 resource "aws_lb_target_group" "grafana" {
-  name_prefix = "gf-" # AWS appends unique suffix
+  name_prefix = "gf-"
   port        = 3000
   protocol    = "HTTP"
   target_type = "instance"
   vpc_id      = local.vpc_id
 
   health_check {
-    path                = "/api/health" # 200 OK on Grafana ≥8
+    path                = "/api/health"
     protocol            = "HTTP"
     matcher             = "200-399"
     interval            = 30
@@ -216,7 +203,7 @@ resource "aws_lb_target_group" "clickhouse" {
   vpc_id      = local.vpc_id
 
   health_check {
-    path                = "/ping" # ClickHouse returns 200 OK
+    path                = "/ping"
     protocol            = "HTTP"
     matcher             = "200"
     interval            = 30
@@ -233,7 +220,7 @@ resource "aws_lb_target_group" "mongo_express" {
   name_prefix = "mg-"
   port        = 8081
   protocol    = "HTTP"
-  target_type = "instance"
+  target_type = "ip"        # Fargate tasks register IPs
   vpc_id      = local.vpc_id
 
   health_check {
@@ -250,7 +237,7 @@ resource "aws_lb_target_group" "mongo_express" {
   deregistration_delay = 10
 }
 
-# ---------- Attach instances to TGs ----------
+# ---------- Attach instances to TGs (ECS auto-registers mongo-express) ----------
 resource "aws_lb_target_group_attachment" "grafana" {
   target_group_arn = aws_lb_target_group.grafana.arn
   target_id        = aws_instance.clickhouse.id
@@ -269,13 +256,7 @@ resource "aws_lb_target_group_attachment" "clickhouse" {
   port             = local.clickhouse_http_port
 }
 
-resource "aws_lb_target_group_attachment" "mongo_express" {
-  count = local.enable_mongo ? 1 : 0
-
-  target_group_arn = aws_lb_target_group.mongo_express[0].arn
-  target_id        = aws_instance.mongo[0].id
-  port             = 8081
-}
+# NOTE: no target_group_attachment for mongo_express; ECS service registers tasks.
 
 # ---------- Listeners ----------
 resource "aws_lb_listener" "https" {
@@ -284,7 +265,7 @@ resource "aws_lb_listener" "https" {
   protocol          = "HTTPS"
 
   certificate_arn = aws_acm_certificate_validation.this.certificate_arn
-  ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-2021-06" # modern TLS1.2/1.3
+  ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-2021-06"
 
   default_action {
     type = "fixed-response"

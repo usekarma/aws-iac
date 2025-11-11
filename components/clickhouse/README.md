@@ -15,53 +15,19 @@ Terraform components to deploy **ClickHouse** (and optionally **MongoDB**, **Red
 
 ---
 
-## Modes & Feature Flags
-
-There are two ways to control whether **MongoDB**, **Redpanda**, and **Kafka Connect** are deployed:
-
-### 1. Config-based mode (default)
-
-In `config.json`:
-
-- `clickhouse_only` – default `false`  
-- `enable_mongo` – default `true`  
-- `enable_redpanda` – default `true`  
-- `enable_kconnect` – default `true`  
-
-When `clickhouse_only = true`:
-
-- `enable_mongo` is forced to `false`
-- `enable_redpanda` is forced to `false`
-- `enable_kconnect` is forced to `false`
-
-### 2. CLI override `-var ch_only=...`
-
-You can override `clickhouse_only` at apply/destroy time:
-
+### Usage  
+By default, all components (**MongoDB**, **Redpanda**, **Kafka Connect**) are deployed:  
 ```bash
-terragrunt apply -var ch_only=true   # Force ClickHouse-only
-terragrunt apply -var ch_only=false  # Force full stack (respect per-feature flags)
+./scripts/deploy.sh clickhouse -usekarma-dev
 ```
 
-Logic:
+### ClickHouse-only mode  
+To deploy **ClickHouse only**, set it in your `config.json`:  
+```json
+{ "clickhouse_only": true }
+```
 
-- If `ch_only` is **not** provided, we use `clickhouse_only` from `config.json`.
-- If `ch_only` **is** provided, it wins over `clickhouse_only`.
-
-Effective flags inside the module (locals):
-
-- `ch_only` – resolved mode (from `ch_only` var or `clickhouse_only`)
-- `enable_mongo` – `false` when `ch_only = true`, otherwise `config.enable_mongo` (default `true`)
-- `enable_redpanda` – `false` when `ch_only = true`, otherwise `config.enable_redpanda` (default `true`)
-- `enable_kconnect` – `false` when `ch_only = true`, otherwise `config.enable_kconnect` (default `true`)
-
-In **ClickHouse-only** mode:
-
-- No **MongoDB** EC2, SG, EBS, or exporters are created
-- No **Redpanda** EC2, SG, EBS, or exporters are created
-- No **Kafka Connect** ECS service / task / SD entries are created
-- User data for ClickHouse receives **empty/zero** values for Mongo/Redpanda/KConnect-related env vars,
-  and the bootstrap scripts skip those integrations.
+This disables **MongoDB**, **Redpanda**, and **Kafka Connect** during deployment.
 
 ---
 

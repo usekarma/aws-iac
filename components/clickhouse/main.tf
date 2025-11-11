@@ -1,15 +1,3 @@
-variable "ch_only" {
-  description = <<EOT
-Optional override for ClickHouse-only mode.
-
-- null  => follow local.config.clickhouse_only
-- true  => force ClickHouse-only (no Mongo/Redpanda/KConnect)
-- false => force full stack (allow those features if enabled)
-EOT
-  type    = any
-  default = null
-}
-
 locals {
   # Instance
   instance_type = try(local.config.instance_type, "m6i.large")
@@ -47,11 +35,7 @@ locals {
   prometheus_url     = try(local.config.prometheus_url, "http://127.0.0.1:9090")
   prometheus_ds_name = try(local.config.prometheus_ds_name, "Prometheus")
 
-  # Mode: ClickHouse-only
-  #   - config key: clickhouse_only
-  #   - CLI override: -var ch_only=...
-  clickhouse_only_cfg = try(local.config.clickhouse_only, false)
-  ch_only             = var.ch_only != null ? var.ch_only : local.clickhouse_only_cfg
+  ch_only = try(local.config.clickhouse_only, false)
 
   # Derived feature flags (align with alb.tf / kconnect.tf)
   enable_mongo    = local.ch_only ? false : try(local.config.enable_mongo, true)
