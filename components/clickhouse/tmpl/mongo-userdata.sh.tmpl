@@ -260,7 +260,7 @@ if [[ -n "$AWS_REGION" && -n "$CLICKHOUSE_BUCKET" && -n "$CLICKHOUSE_PREFIX" ]];
     if [[ -n "$LATEST_BACKUP" ]]; then
       echo "[userdata-mongo] Found Mongo backup in S3: $LATEST_BACKUP"
       mkdir -p /tmp/mongo-restore
-      aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/backups/${LATEST_BACKUP}" /tmp/mongo-restore/ --recursive
+      aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/backups/$${LATEST_BACKUP}" /tmp/mongo-restore/ --recursive
       mongorestore --gzip --drop --uri="mongodb://127.0.0.1:${MONGO_PORT}" /tmp/mongo-restore \
         && touch "$RESTORE_MARKER" \
         || echo "[userdata-mongo] WARNING: mongorestore failed"
@@ -358,24 +358,17 @@ if [[ -n "$AWS_REGION" && -n "$CLICKHOUSE_BUCKET" && -n "$CLICKHOUSE_PREFIX" ]];
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Defaults so the script works when run interactively
-MONGO_PORT="${MONGO_PORT:-27017}"
-AWS_REGION="${AWS_REGION:-us-east-1}"
-CLICKHOUSE_BUCKET="${CLICKHOUSE_BUCKET:?CLICKHOUSE_BUCKET must be set}"
-CLICKHOUSE_PREFIX="${CLICKHOUSE_PREFIX:-mongo}"
-
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="/tmp/mongo-dump-$TS"
 
 echo "[mongo-backup] Dumping MongoDB from localhost:${MONGO_PORT}..."
 mongodump --uri="mongodb://127.0.0.1:${MONGO_PORT}" --gzip --out "$OUT"
 
-S3_PATH="s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/backups/dump-$TS/"
-echo "[mongo-backup] Uploading backup to ${S3_PATH} (region=${AWS_REGION})..."
-aws s3 cp "$OUT" "$S3_PATH" --recursive --region "${AWS_REGION}"
+echo "[mongo-backup] Uploading backup to s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/backups/dump-$TS/ (region=${AWS_REGION})..."
+aws s3 cp "$OUT" "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/backups/dump-$TS/" --recursive --region "${AWS_REGION}"
 
 rm -rf "$OUT"
-echo "[mongo-backup] Backup complete: ${S3_PATH}"
+echo "[mongo-backup] Backup complete: s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/backups/dump-$TS/"
 BKS
   chmod +x /usr/local/bin/mongo-backup-s3.sh
   echo "[userdata-mongo] Manual backup script installed at /usr/local/bin/mongo-backup-s3.sh"
