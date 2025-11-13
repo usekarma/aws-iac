@@ -22,6 +22,12 @@ locals {
     aws_service_discovery_private_dns_namespace.kconnect[0].name
   ) : ""
 
+  kconnect_url = local.enable_kconnect ? format(
+    "http://%s:%d",
+    local.kconnect_rest_host,
+    local.kconnect_rest_port
+  ) : ""
+
   kconnect_metrics_port = try(local.kconnect.port, 9404)
 
   # Construct default ECR fallback URI dynamically

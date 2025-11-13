@@ -11,6 +11,12 @@ locals {
   redpanda_exporter_port = try(local.config.redpanda_exporter_port, 9644)
   redpanda_nodeexp_ver   = try(local.config.redpanda_nodeexp_ver, "1.8.2")
   redpanda_nodeexp_port  = try(local.config.redpanda_node_port, 9100)
+
+  redpanda_brokers = (
+    local.enable_redpanda && length(aws_instance.redpanda) > 0 ?
+    "${aws_instance.redpanda[0].private_ip}:${local.redpanda_port}" :
+    null
+  )
 }
 
 # SG for Redpanda

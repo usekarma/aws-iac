@@ -381,7 +381,7 @@ resource "aws_ssm_parameter" "runtime" {
     redpanda_instance_id       = local.enable_redpanda ? aws_instance.redpanda[0].id         : null,
     redpanda_private_ip        = local.enable_redpanda ? aws_instance.redpanda[0].private_ip : null,
     redpanda_security_group_id = local.enable_redpanda ? aws_security_group.redpanda[0].id   : null,
-    redpanda_brokers           = local.enable_redpanda ? "${aws_instance.redpanda[0].private_ip}:${local.redpanda_port}" : null,
+    redpanda_brokers           = local.enable_redpanda ? local.redpanda_brokers : null,
 
     # MongoDB (nulls when disabled)
     mongo_instance_id       = local.enable_mongo ? aws_instance.mongo[0].id         : null,

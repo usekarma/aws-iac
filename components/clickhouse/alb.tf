@@ -3,14 +3,15 @@ locals {
   domain_name = try(local.config.domain_name, "usekarma.dev")
   alb_name    = try(local.config.alb_name, "usekarma-observability")
 
-  grafana_host    = try(local.config.grafana_host,    format("grafana.%s",    local.domain_name))
-  prometheus_host = try(local.config.prometheus_host, format("prometheus.%s", local.domain_name))
-  clickhouse_host = try(local.config.clickhouse_host, format("clickhouse.%s", local.domain_name))
-  mongo_host      = try(local.config.mongo_host,      format("mongo.%s",      local.domain_name))
+  grafana_host     = try(local.config.grafana_host, format("grafana.%s", local.domain_name))
+  prometheus_host  = try(local.config.prometheus_host, format("prometheus.%s", local.domain_name))
+  clickhouse_host  = try(local.config.clickhouse_host, format("clickhouse.%s", local.domain_name))
+  mongo_express    = try(local.config.mongo_express, format("mongo.%s", local.domain_name))
+  redpanda_console = try(local.config.redpanda_console, format("redpanda.%s", local.domain_name))
 
   # Versions
   prometheus_ver = try(local.config.prometheus_ver, "2.54.1")
-  nodeexp_ver    = try(local.config.nodeexp_ver,    "1.8.1")
+  nodeexp_ver    = try(local.config.nodeexp_ver, "1.8.1")
 
   # zone_id is optional in config; if omitted, we’ll look it up by domain
   zone_id_opt = try(local.config.zone_id, null)
@@ -33,7 +34,8 @@ locals {
       local.prometheus_host,
       local.clickhouse_host,
     ],
-    local.enable_mongo ? [local.mongo_host] : []
+    local.enable_mongo ? [local.mongo_express] : [],
+    local.enable_redpanda ? [local.redpanda_console] : []
   )))
 }
 
@@ -220,7 +222,7 @@ resource "aws_lb_target_group" "mongo_express" {
   name_prefix = "mg-"
   port        = 8081
   protocol    = "HTTP"
-  target_type = "ip"        # Fargate tasks register IPs
+  target_type = "ip" # Fargate tasks register IPs
   vpc_id      = local.vpc_id
 
   health_check {
@@ -335,7 +337,7 @@ resource "aws_lb_listener_rule" "clickhouse_host" {
   }
 }
 
-resource "aws_lb_listener_rule" "mongo_host" {
+resource "aws_lb_listener_rule" "mongo_express" {
   count        = local.enable_mongo ? 1 : 0
   listener_arn = aws_lb_listener.https.arn
   priority     = 40
@@ -347,9 +349,28 @@ resource "aws_lb_listener_rule" "mongo_host" {
 
   condition {
     host_header {
-      values = [local.mongo_host] # defaults to "mongo.usekarma.dev"
+      values = [local.mongo_express] # defaults to "mongo.usekarma.dev"
     }
   }
+}
+
+resource "aws_lb_listener_rule" "redpanda_console" {
+  count        = local.enable_redpanda ? 1 : 0
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 277 # adjust to fit your rule set
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.redpanda_console[0].arn
+  }
+
+  condition {
+    host_header {
+      values = [local.redpanda_console]
+    }
+  }
+
+  tags = local.tags
 }
 
 # ---------- Route53 A-records to ALB ----------
@@ -387,9 +408,21 @@ resource "aws_route53_record" "clickhouse" {
 }
 
 resource "aws_route53_record" "mongo" {
-  count  = local.enable_mongo ? 1 : 0
+  count   = local.enable_mongo ? 1 : 0
   zone_id = local.zone_id
-  name    = local.mongo_host    # "mongo.usekarma.dev"
+  name    = local.mongo_express # "mongo.usekarma.dev"
+  type    = "A"
+  alias {
+    name                   = aws_lb.obs.dns_name
+    zone_id                = aws_lb.obs.zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "redpanda_console" {
+  count   = local.enable_redpanda ? 1 : 0
+  zone_id = local.zone_id
+  name    = local.redpanda_console # defaults to "console.usekarma.dev"
   type    = "A"
   alias {
     name                   = aws_lb.obs.dns_name
