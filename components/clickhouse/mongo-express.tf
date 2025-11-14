@@ -141,13 +141,10 @@ resource "aws_ecs_task_definition" "mongo_express" {
           value = "true"
         },
         {
-          name  = "ME_CONFIG_BASICAUTH_USERNAME"
-          value = try(local.config.mongo_express_basic_auth_user, "admin")
-        },
-        {
-          name  = "ME_CONFIG_BASICAUTH_PASSWORD"
-          value = try(local.config.mongo_express_basic_auth_password, "admin")
+          name  = "ME_CONFIG_BASICAUTH"
+          value = "false"
         }
+
       ]
 
       logConfiguration = {

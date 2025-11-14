@@ -3,6 +3,8 @@ locals {
   domain_name = try(local.config.domain_name, "usekarma.dev")
   alb_name    = try(local.config.alb_name, "usekarma-observability")
 
+  cognito_sso = jsondecode(nonsensitive(data.aws_ssm_parameter.cognito_runtime.value))
+
   grafana_host     = try(local.config.grafana_host, format("grafana.%s", local.domain_name))
   prometheus_host  = try(local.config.prometheus_host, format("prometheus.%s", local.domain_name))
   clickhouse_host  = try(local.config.clickhouse_host, format("clickhouse.%s", local.domain_name))
@@ -15,6 +17,20 @@ locals {
 
   # zone_id is optional in config; if omitted, we’ll look it up by domain
   zone_id_opt = try(local.config.zone_id, null)
+
+  # Hosted UI base host, e.g. "usekarma-obs.auth.us-east-1.amazoncognito.com"
+  cognito_hosted_ui_host = format(
+    "%s.auth.%s.amazoncognito.com",
+    local.cognito_sso.user_pool_domain,
+    local.cognito_sso.region
+  )
+
+  # Where Cognito should send the user after logout (Grafana as canonical landing page)
+  cognito_logout_redirect_uri = format("https://%s/", local.grafana_host)
+}
+
+data "aws_ssm_parameter" "cognito_runtime" {
+  name = "${var.iac_prefix}/cognito-sso/${local.config.cognito_sso_nickname}/runtime"
 }
 
 # Auto-lookup public hosted zone only when zone_id isn’t provided
@@ -27,7 +43,7 @@ data "aws_route53_zone" "this" {
 locals {
   zone_id = local.zone_id_opt != null ? local.zone_id_opt : data.aws_route53_zone.this[0].zone_id
 
-  # Include hosts in SANs; only add mongo when enabled
+  # Include hosts in SANs; only add mongo/redpanda when enabled
   alt_names = compact(distinct(concat(
     [
       local.grafana_host,
@@ -72,8 +88,8 @@ resource "aws_acm_certificate_validation" "this" {
 
 # ---------- ALB Security Group ----------
 resource "aws_security_group" "alb" {
-  name        = "${local.alb_name}-sg"
-  description = "ALB for Grafana/Prometheus/ClickHouse/Mongo"
+  name_prefix = "${local.alb_name}-sg-"
+  description = "ALB for Grafana/Prometheus/ClickHouse/Mongo/Redpanda"
   vpc_id      = local.vpc_id
 
   # HTTPS + HTTP (for redirect)
@@ -113,6 +129,10 @@ resource "aws_security_group" "alb" {
     security_groups  = null
     self             = null
   }]
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   tags = local.tags
 }
@@ -294,11 +314,45 @@ resource "aws_lb_listener" "http" {
   }
 }
 
+# ---------- Global logout endpoint ----------
+# /logout -> logout ECS service (which then calls Cognito /logout and redirects back)
+resource "aws_lb_listener_rule" "logout" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 5 # must be lower than 10 so it matches before grafana/prom/clickhouse/etc.
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.logout.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/logout"]
+    }
+  }
+}
+
 # ---------- Host-based routing ----------
 resource "aws_lb_listener_rule" "grafana_host" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 10
 
+  # Cognito SSO gate
+  action {
+    type = "authenticate-cognito"
+
+    authenticate_cognito {
+      user_pool_arn       = local.cognito_sso.user_pool_arn
+      user_pool_client_id = local.cognito_sso.client_id
+      user_pool_domain    = local.cognito_sso.user_pool_domain
+
+      scope                      = "openid email"
+      session_cookie_name        = "alb_auth"
+      on_unauthenticated_request = "authenticate"
+    }
+  }
+
+  # After auth, forward to Grafana
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.grafana.arn
@@ -314,6 +368,20 @@ resource "aws_lb_listener_rule" "prometheus_host" {
   priority     = 20
 
   action {
+    type = "authenticate-cognito"
+
+    authenticate_cognito {
+      user_pool_arn       = local.cognito_sso.user_pool_arn
+      user_pool_client_id = local.cognito_sso.client_id
+      user_pool_domain    = local.cognito_sso.user_pool_domain
+
+      scope                      = "openid email"
+      session_cookie_name        = "alb_auth"
+      on_unauthenticated_request = "authenticate"
+    }
+  }
+
+  action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.prometheus.arn
   }
@@ -326,6 +394,20 @@ resource "aws_lb_listener_rule" "prometheus_host" {
 resource "aws_lb_listener_rule" "clickhouse_host" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 30
+
+  action {
+    type = "authenticate-cognito"
+
+    authenticate_cognito {
+      user_pool_arn       = local.cognito_sso.user_pool_arn
+      user_pool_client_id = local.cognito_sso.client_id
+      user_pool_domain    = local.cognito_sso.user_pool_domain
+
+      scope                      = "openid email"
+      session_cookie_name        = "alb_auth"
+      on_unauthenticated_request = "authenticate"
+    }
+  }
 
   action {
     type             = "forward"
@@ -343,6 +425,20 @@ resource "aws_lb_listener_rule" "mongo_express" {
   priority     = 40
 
   action {
+    type = "authenticate-cognito"
+
+    authenticate_cognito {
+      user_pool_arn       = local.cognito_sso.user_pool_arn
+      user_pool_client_id = local.cognito_sso.client_id
+      user_pool_domain    = local.cognito_sso.user_pool_domain
+
+      scope                      = "openid email"
+      session_cookie_name        = "alb_auth"
+      on_unauthenticated_request = "authenticate"
+    }
+  }
+
+  action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.mongo_express[0].arn
   }
@@ -358,6 +454,20 @@ resource "aws_lb_listener_rule" "redpanda_console" {
   count        = local.enable_redpanda ? 1 : 0
   listener_arn = aws_lb_listener.https.arn
   priority     = 277 # adjust to fit your rule set
+
+  action {
+    type = "authenticate-cognito"
+
+    authenticate_cognito {
+      user_pool_arn       = local.cognito_sso.user_pool_arn
+      user_pool_client_id = local.cognito_sso.client_id
+      user_pool_domain    = local.cognito_sso.user_pool_domain
+
+      scope                      = "openid email"
+      session_cookie_name        = "alb_auth"
+      on_unauthenticated_request = "authenticate"
+    }
+  }
 
   action {
     type             = "forward"
@@ -419,10 +529,10 @@ resource "aws_route53_record" "mongo" {
   }
 }
 
-resource "aws_route53_record" "redpanda_console" {
+resource "aws_route53_record" "redpanda_console_record" {
   count   = local.enable_redpanda ? 1 : 0
   zone_id = local.zone_id
-  name    = local.redpanda_console # defaults to "console.usekarma.dev"
+  name    = local.redpanda_console # defaults to "redpanda.usekarma.dev" or similar
   type    = "A"
   alias {
     name                   = aws_lb.obs.dns_name
