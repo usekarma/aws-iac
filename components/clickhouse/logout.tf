@@ -11,8 +11,23 @@ locals {
   logout_platform_version = try(local.config.logout_platform_version, "LATEST")
   logout_assign_public_ip = try(local.config.logout_assign_public_ip, false)
 
-  # Image: override via config.logout_image with full ECR URI
-  logout_image = try(local.config.logout_image, "logout-service:latest")
+  # Repo name (optional override)
+  logout_repo = try(local.config.logout_repo, "logout-service")
+
+  # Optional version override (default latest)
+  logout_tag  = try(local.config.logout_tag, "latest")
+
+  # Fallback: dynamically constructed ECR image
+  logout_fallback_image = format(
+    "%s.dkr.ecr.%s.amazonaws.com/%s:%s",
+    data.aws_caller_identity.current.account_id,
+    data.aws_region.current.id,
+    local.logout_repo,
+    local.logout_tag
+  )
+
+  # Final image used
+  logout_image = try(local.config.logout_image, local.logout_fallback_image)
 
   # Cognito SSO runtime (already decoded into local.cognito_sso in alb.tf)
   # local.cognito_sso = {
@@ -201,8 +216,8 @@ resource "aws_ecs_service" "logout" {
   platform_version = local.logout_platform_version
 
   network_configuration {
-    subnets         = local.vpc.private_subnet_ids
-    security_groups = [aws_security_group.logout.id]
+    subnets          = local.vpc.private_subnet_ids
+    security_groups  = [aws_security_group.logout.id]
     assign_public_ip = local.logout_assign_public_ip
   }
 
