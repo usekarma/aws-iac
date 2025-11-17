@@ -1,7 +1,6 @@
 locals {
   # Instance
   instance_type = try(local.config.instance_type, "m6i.large")
-  ami_owner     = "137112412989"                   # Amazon Linux 2023 owner (AWS)
   key_name      = try(local.config.key_name, null) # usually null; SSM-only access
 
   # Storage
@@ -56,23 +55,29 @@ data "aws_ssm_parameter" "s3_bucket" {
   name = "${var.iac_prefix}/s3-bucket/${local.config.s3_bucket_nickname}/runtime"
 }
 
-data "aws_ami" "al2023" {
-  owners      = [local.ami_owner]
+data "aws_ami" "clickhouse_base" {
   most_recent = true
+  owners      = ["self"] # only AMIs you own
 
+  # Match the packer-baked ClickHouse base AMI
   filter {
-    name   = "name"
-    values = ["al2023-ami-*-x86_64"]
+    name   = "tag:Name"
+    values = ["clickhouse-base"]
   }
 
   filter {
-    name   = "architecture"
-    values = ["x86_64"]
+    name   = "tag:Component"
+    values = ["clickhouse"]
   }
 
   filter {
-    name   = "root-device-type"
-    values = ["ebs"]
+    name   = "tag:Role"
+    values = ["db"]
+  }
+
+  filter {
+    name   = "tag:ManagedBy"
+    values = ["packer"]
   }
 }
 
@@ -226,7 +231,7 @@ resource "aws_ebs_volume" "data" {
 ############################
 
 resource "aws_instance" "clickhouse" {
-  ami                         = data.aws_ami.al2023.id
+  ami                         = data.aws_ami.clickhouse_base.id
   instance_type               = local.instance_type
   subnet_id                   = local.subnet_id
   associate_public_ip_address = false

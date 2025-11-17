@@ -125,22 +125,13 @@ if [[ -n "$MNT" ]]; then
   fi
 fi
 
-# ---------------- Install ClickHouse --------------------
-if [[ "$PM" == "apt" ]]; then
-  install -m 0755 -d /usr/share/keyrings
-  curl -fsSL https://packages.clickhouse.com/apt/doc/apt-key.gpg \
-    | gpg --dearmor -o /usr/share/keyrings/clickhouse.gpg
-  echo "deb [signed-by=/usr/share/keyrings/clickhouse.gpg] https://packages.clickhouse.com/deb stable main" \
-    > /etc/apt/sources.list.d/clickhouse.list
-  apt-get update -y
-  apt-get install -y clickhouse-server clickhouse-client
-else
-  dnf config-manager --add-repo https://packages.clickhouse.com/rpm/clickhouse.repo || true
-  $PM -y makecache || true
-  $PM -y install clickhouse-server clickhouse-client
+# ---------------- Verify ClickHouse binary from AMI -----
+if ! command -v clickhouse-client >/dev/null 2>&1 || ! command -v clickhouse-server >/dev/null 2>&1; then
+  echo "[userdata] ERROR: clickhouse-server/client not found on base AMI; expected preinstalled ClickHouse."
+  exit 1
 fi
 now=$(date +%s)
-echo "[userdata:time] $(date -Is) after ClickHouse install: $((now - SCRIPT_START_EPOCH))s since start"
+echo "[userdata:time] $(date -Is) after ClickHouse binary check: $((now - SCRIPT_START_EPOCH))s since start"
 
 # ---------------- Configure data path & ports -----------
 systemctl stop clickhouse-server || true
