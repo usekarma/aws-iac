@@ -11,6 +11,8 @@ locals {
   redpanda_iops          = try(local.config.redpanda_iops, 3000)
   redpanda_throughput    = try(local.config.redpanda_throughput, 125)
 
+  redpanda_retention = try(local.config.redpanda_retention, 7 * 24 * 60 * 60 * 1000)
+
   # Ports + topic
   redpanda_port          = try(local.config.redpanda_port, 9092)
   redpanda_admin_port    = try(local.config.redpanda_admin_port, 9644)

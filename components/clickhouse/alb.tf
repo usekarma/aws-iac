@@ -11,10 +11,6 @@ locals {
   mongo_express    = try(local.config.mongo_express, format("mongo.%s", local.domain_name))
   redpanda_console = try(local.config.redpanda_console, format("redpanda.%s", local.domain_name))
 
-  # Versions
-  prometheus_ver = try(local.config.prometheus_ver, "2.54.1")
-  nodeexp_ver    = try(local.config.nodeexp_ver, "1.8.1")
-
   # zone_id is optional in config; if omitted, we’ll look it up by domain
   zone_id_opt = try(local.config.zone_id, null)
 
