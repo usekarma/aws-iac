@@ -3,7 +3,7 @@ locals {
   instance_type = try(local.config.instance_type, "m6i.large")
   key_name      = try(local.config.key_name, null) # usually null; SSM-only access
 
-  # Storage
+  # Storage (data volume, not root)
   ebs_size_gb    = try(local.config.ebs_size_gb, 500)
   ebs_type       = try(local.config.ebs_type, "gp3")
   ebs_iops       = try(local.config.ebs_iops, 3000)
@@ -20,10 +20,19 @@ locals {
   backup_bucket_name = local.backup_bucket_cfg.bucket_name
   backup_prefix      = local.config.s3_bucket_prefix
 
-  # ClickHouse config
-  clickhouse_version   = try(local.config.clickhouse_version, "24.8") # repo track
+  # ClickHouse AMI metadata (from SSM)
+  clickhouse_ami_meta = jsondecode(nonsensitive(data.aws_ssm_parameter.clickhouse_ami.value))
+  clickhouse_ami_id   = local.clickhouse_ami_meta.ami_id
+  clickhouse_root_gb  = try(local.clickhouse_ami_meta.root_volume_gb, 30)
+
+  # ClickHouse config (version from config overrides AMI metadata if set)
+  clickhouse_version   = try(local.config.clickhouse_version, local.clickhouse_ami_meta.clickhouse_version, "24.8")
   clickhouse_http_port = try(local.config.http_port, 8123)
   clickhouse_tcp_port  = try(local.config.tcp_port, 9000)
+
+  # Observability versions (from AMI metadata, with sane defaults)
+  prometheus_ver = try(local.clickhouse_ami_meta.prometheus_version, "2.53.0")
+  nodeexp_ver    = try(local.clickhouse_ami_meta.node_exporter_version, "1.8.2")
 
   # Grafana
   grafana_url   = try(local.config.grafana_url, "http://127.0.0.1:3000")
@@ -55,30 +64,9 @@ data "aws_ssm_parameter" "s3_bucket" {
   name = "${var.iac_prefix}/s3-bucket/${local.config.s3_bucket_nickname}/runtime"
 }
 
-data "aws_ami" "clickhouse_base" {
-  most_recent = true
-  owners      = ["self"] # only AMIs you own
-
-  # Match the packer-baked ClickHouse base AMI
-  filter {
-    name   = "tag:Name"
-    values = ["clickhouse-base"]
-  }
-
-  filter {
-    name   = "tag:Component"
-    values = ["clickhouse"]
-  }
-
-  filter {
-    name   = "tag:Role"
-    values = ["db"]
-  }
-
-  filter {
-    name   = "tag:ManagedBy"
-    values = ["packer"]
-  }
+# ClickHouse AMI metadata (JSON) from SSM
+data "aws_ssm_parameter" "clickhouse_ami" {
+  name = "${var.iac_prefix}/${var.component_name}/ami/base"
 }
 
 data "aws_iam_policy_document" "assume" {
@@ -231,7 +219,7 @@ resource "aws_ebs_volume" "data" {
 ############################
 
 resource "aws_instance" "clickhouse" {
-  ami                         = data.aws_ami.clickhouse_base.id
+  ami                         = local.clickhouse_ami_id
   instance_type               = local.instance_type
   subnet_id                   = local.subnet_id
   associate_public_ip_address = false
@@ -242,7 +230,7 @@ resource "aws_instance" "clickhouse" {
   root_block_device {
     encrypted   = true
     volume_type = "gp3"
-    volume_size = 20
+    volume_size = local.clickhouse_root_gb
   }
 
   metadata_options {
@@ -386,7 +374,7 @@ resource "aws_ssm_parameter" "runtime" {
     redpanda_instance_id       = local.enable_redpanda ? aws_instance.redpanda[0].id         : null,
     redpanda_private_ip        = local.enable_redpanda ? aws_instance.redpanda[0].private_ip : null,
     redpanda_security_group_id = local.enable_redpanda ? aws_security_group.redpanda[0].id   : null,
-    redpanda_brokers           = local.enable_redpanda ? local.redpanda_brokers : null,
+    redpanda_brokers           = local.enable_redpanda ? local.redpanda_brokers              : null,
 
     # MongoDB (nulls when disabled)
     mongo_instance_id       = local.enable_mongo ? aws_instance.mongo[0].id         : null,

@@ -1,106 +1,238 @@
-# ClickHouse AMI (Amazon Linux 2023 + Packer)
+# AMI Build & Metadata Pipeline  
+### ClickHouse • MongoDB • Redpanda  
+### (Base AMIs + SSM Metadata Contracts)
 
-A fast-booting **base AMI** with ClickHouse preinstalled.
-All schema, Kafka tables, CDC, exporters, dashboards, backups, etc. are applied **at runtime**, not baked in.
+This directory builds the **three base AMIs** required by the PoC:
 
----
+- **ClickHouse AMI**  
+- **MongoDB AMI**  
+- **Redpanda AMI**
 
-## Build
-```bash
-make
-```
-Or with overrides:
-```bash
-make build AWS_REGION=us-west-2 CLICKHOUSE_VERSION=25.10.2.65
-```
+These AMIs intentionally contain **only the OS + system-level server packages + exporters**.  
+No schema, dashboards, flows, or CDC logic is baked in — those run at runtime.
 
----
-
-## Publish AMI ID to SSM
-```bash
-make publish
-```
-Writes to:
-```
-/clickhouse/base/ami
-```
+AMI metadata is published to SSM so Terraform can consume *all required matching values*.
 
 ---
 
-## Use in Terraform
-```hcl
-data "aws_ssm_parameter" "clickhouse_ami" {
-  name = "/clickhouse/base/ami"
+# 1. Makefile Targets
+
+From inside the AMI component directory:
+
+```
+make clickhouse-ami     # Build ClickHouse AMI + write SSM
+make mongo-ami          # Build Mongo AMI + write SSM
+make redpanda-ami       # Build Redpanda AMI + write SSM
+make amis               # Build ALL of them
+```
+
+---
+
+# 2. Optional Makefile Overrides
+
+## Global
+
+```
+AWS_REGION=us-east-1
+AWS_PROFILE=prod-iac
+IAC_PREFIX=/iac
+COMPONENT_NAME=clickhouse
+```
+
+## ClickHouse
+
+```
+CLICKHOUSE_ROOT_GB=30
+CLICKHOUSE_VERSION_TRACK=24.8
+CLICKHOUSE_PROMETHEUS_VERSION=2.53.0
+CLICKHOUSE_NODE_EXPORTER_VER=1.8.2
+```
+
+## Mongo
+
+```
+MONGO_ROOT_GB=30
+MONGO_MAJOR=7
+MONGO_EXPORTER_VERSION=0.40.0
+MONGO_NODE_EXPORTER_VER=1.8.2
+```
+
+## Redpanda
+
+```
+REDPANDA_ROOT_GB=30
+REDPANDA_VERSION=23.3.0
+REDPANDA_NODE_EXPORTER_VER=1.8.2
+```
+
+### Example
+
+```
+make clickhouse-ami   AWS_REGION=us-west-2   AWS_PROFILE=prod   CLICKHOUSE_VERSION_TRACK=25.10.2.65
+```
+
+---
+
+# 3. What Each Target Does
+
+Every `*-ami` target performs:
+
+1. `packer fmt`
+2. `packer validate`
+3. `packer build`
+4. Parses AMI ID from Packer output
+5. Writes SSM parameter:
+
+```
+${IAC_PREFIX}/${COMPONENT_NAME}/ami/<kind>
+```
+
+Where `<kind>` is:
+
+- `base`
+- `mongo`
+- `redpanda`
+
+---
+
+# 4. SSM Parameter JSON (The Contract Terraform Consumes)
+
+These JSON documents must contain **every value** Terraform must match.
+
+---
+
+## 4.1 ClickHouse
+
+SSM path:
+
+```
+/iac/clickhouse/ami/base
+```
+
+JSON:
+
+```json
+{
+  "ami_id": "ami-xxxxxxxxxxxx",
+  "root_volume_gb": 30,
+  "clickhouse_version": "24.8",
+  "prometheus_version": "2.53.0",
+  "node_exporter_version": "1.8.2"
 }
+```
 
-resource "aws_instance" "clickhouse" {
-  ami           = data.aws_ssm_parameter.clickhouse_ami.value
-  instance_type = "m6i.large"
+---
+
+## 4.2 Mongo
+
+SSM path:
+
+```
+/iac/clickhouse/ami/mongo
+```
+
+JSON:
+
+```json
+{
+  "ami_id": "ami-yyyyyyyyyyyy",
+  "root_volume_gb": 30,
+  "mongo_major": "7",
+  "mongo_exporter_version": "0.40.0",
+  "node_exporter_version": "1.8.2"
 }
 ```
 
 ---
 
-## When to Rebuild
-Rebuild if:
-* ClickHouse version changes
-* Amazon Linux 2023 base updates
-* Install script changes
+## 4.3 Redpanda
 
-**Do NOT rebuild for:**
-* Schema changes
-* Kafka ENGINE tables
-* Debezium config
-* Dashboards / exporters
-* PoC logic
+SSM path:
 
-These belong in **userdata or SSM bootstrap**.
+```
+/iac/clickhouse/ami/redpanda
+```
+
+JSON:
+
+```json
+{
+  "ami_id": "ami-zzzzzzzzzz",
+  "root_volume_gb": 30,
+  "redpanda_version": "23.3.0",
+  "node_exporter_version": "1.8.2"
+}
+```
 
 ---
 
-## Key Reminders
-* AMI is intentionally minimal and fast
-* Systemd ClickHouse is installed + enabled
-* `listen.xml` allows all interfaces — security via SGs
-* Bootstrapping scripts run after launch
-* Don’t put PoC logic in the AMI
+# 5. Terraform Only Needs These JSON Docs
+
+Terraform will always read from SSM and configure EC2:
+
+- AMI ID  
+- root volume size  
+- major versions  
+- exporter versions  
+
+This ensures the **AMI → Terraform → userdata** contract **always matches**.
 
 ---
 
-## Cleaning Up Old AMIs
+# 6. When You Need to Rebuild
 
-### List old AMIs
-```bash
-aws ec2 describe-images \
-  --owners self \
-  --filters "Name=name,Values=clickhouse-base-*" \
-  --query 'Images[*].[ImageId,Name,CreationDate]' \
-  --output table
+Rebuild AMIs when **any** of these change:
+
+- OS packages
+- ClickHouse / MongoDB / Redpanda versions
+- Prometheus
+- Node Exporter
+- Systemd or bootstrap scripts
+
+Do **not** rebuild AMIs for:
+
+- schema  
+- CDC  
+- dashboards  
+- Grafana  
+- KConnect  
+- PoC logic  
+
+Those are runtime.
+
+---
+
+# 7. AMI Cleanup
+
+List:
+
+```
+aws ec2 describe-images   --owners self   --filters "Name=name,Values=*-base-*"   --query 'Images[*].[ImageId,Name,CreationDate]'   --output table
 ```
 
-### Deregister an AMI
-```bash
-aws ec2 deregister-image --image-id ami-1234567890abcdef0
+Deregister:
+
+```
+aws ec2 deregister-image --image-id AMI_ID
 ```
 
-### Find and delete orphan snapshots
-```bash
-aws ec2 describe-snapshots \
-  --owner-ids self \
-  --query 'Snapshots[?Description!=null && contains(Description, `ami-1234567890abcdef0`)].SnapshotId'
+Find snapshots:
+
 ```
+aws ec2 describe-snapshots   --owner-ids self   --query "Snapshots[?contains(Description, 'AMI_ID')].SnapshotId"
+```
+
 Delete:
-```bash
-aws ec2 delete-snapshot --snapshot-id snap-0123456789abcdef0
+
+```
+aws ec2 delete-snapshot --snapshot-id SNAP_ID
 ```
 
 ---
 
-## TL;DR Workflow
-```bash
-make
-make publish
+# 8. TL;DR
+
+```
+make amis
 terraform apply
-# occasional cleanup:
-aws ec2 deregister-image --image-id OLD_AMI
-aws ec2 delete-snapshot --snapshot-id OLD_SNAP
+```

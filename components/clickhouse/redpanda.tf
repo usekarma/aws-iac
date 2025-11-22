@@ -1,15 +1,22 @@
 locals {
+  # AMI metadata from SSM (JSON)
+  redpanda_ami_meta = jsondecode(nonsensitive(data.aws_ssm_parameter.redpanda_ami.value))
+  redpanda_ami_id   = local.redpanda_ami_meta.ami_id
+  redpanda_root_gb  = try(local.redpanda_ami_meta.root_volume_gb, 30)
+  redpanda_nodeexp_ver = try(local.redpanda_ami_meta.node_exporter_version, "1.8.2")
+
+  # Instance / data volume config
   redpanda_instance_type = try(local.config.redpanda_instance_type, "c6i.large")
   redpanda_volume_gb     = try(local.config.redpanda_volume_gb, 200)
   redpanda_iops          = try(local.config.redpanda_iops, 3000)
   redpanda_throughput    = try(local.config.redpanda_throughput, 125)
+
+  # Ports + topic
   redpanda_port          = try(local.config.redpanda_port, 9092)
   redpanda_admin_port    = try(local.config.redpanda_admin_port, 9644)
   redpanda_topic         = try(local.config.redpanda_topic, "clickhouse_ingest")
   redpanda_partitions    = try(local.config.redpanda_partitions, 3)
-  redpanda_retention     = try(local.config.redpanda_retention_ms, 604800000) # 7 days
   redpanda_exporter_port = try(local.config.redpanda_exporter_port, 9644)
-  redpanda_nodeexp_ver   = try(local.config.redpanda_nodeexp_ver, "1.8.2")
   redpanda_nodeexp_port  = try(local.config.redpanda_node_port, 9100)
 
   redpanda_brokers = (
@@ -17,6 +24,10 @@ locals {
     "${aws_instance.redpanda[0].private_ip}:${local.redpanda_port}" :
     null
   )
+}
+
+data "aws_ssm_parameter" "redpanda_ami" {
+  name = "${var.iac_prefix}/${var.component_name}/ami/redpanda"
 }
 
 # SG for Redpanda
@@ -99,7 +110,7 @@ resource "aws_ebs_volume" "redpanda_data" {
 # Redpanda EC2
 resource "aws_instance" "redpanda" {
   count                       = local.enable_redpanda ? 1 : 0
-  ami                         = data.aws_ami.al2023.id
+  ami                         = local.redpanda_ami_id
   instance_type               = local.redpanda_instance_type
   subnet_id                   = local.subnet_id
   associate_public_ip_address = false
@@ -110,7 +121,7 @@ resource "aws_instance" "redpanda" {
   root_block_device {
     encrypted   = true
     volume_type = "gp3"
-    volume_size = 20
+    volume_size = local.redpanda_root_gb  # must be >= root_volume_size_gb in redpanda-ami.pkr.hcl
   }
 
   metadata_options {
@@ -135,7 +146,7 @@ resource "aws_instance" "redpanda" {
     REDPANDA_ADMIN_PORT = local.redpanda_admin_port
     REDPANDA_BOOT_TOPIC = local.redpanda_topic
     REDPANDA_PARTITIONS = local.redpanda_partitions
-    REDPANDA_RF         = local.redpanda_retention
+    REDPANDA_RF         = 1
 
     NODE_EXPORTER_VERSION = local.redpanda_nodeexp_ver
   }))
