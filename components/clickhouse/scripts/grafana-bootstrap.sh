@@ -6,7 +6,7 @@ set -euo pipefail
 # =========================
 # Hard-coded configuration
 # =========================
-GRAFANA_URL="${GRAFANA_URL:-https://grafana.usekarma.dev}"
+GRAFANA_URL="${GRAFANA_URL:-http://127.0.0.1:3000}"
 GRAFANA_USER="${GRAFANA_USER:-admin}"
 GRAFANA_PASS="${GRAFANA_PASS:-admin}"
 
