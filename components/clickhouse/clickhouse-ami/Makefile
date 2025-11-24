@@ -19,32 +19,45 @@ SSM_AMI_PREFIX ?= /iac/clickhouse/ami
 
 PACKER ?= packer
 
-.PHONY: all clickhouse mongo redpanda fmt clean-logs
+# ------------------------------------------------------------
+# Help target
+# ------------------------------------------------------------
+help:  ## Show available make targets
+	@echo ""
+	@echo "Available targets:"
+	@echo ""
+	@grep -E '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) \
+		| sed -E 's/:.*##/: /' \
+		| sed -E 's/^/  /'
+	@echo ""
 
+.PHONY: help all clickhouse mongo redpanda fmt clean-logs
+
+all: ## Build all AMIs
 all: clickhouse mongo redpanda
 
-fmt:
+fmt: ## Format packer templates
 	@$(PACKER) fmt clickhouse-ami.pkr.hcl
 	@$(PACKER) fmt mongo-ami.pkr.hcl
 	@$(PACKER) fmt redpanda-ami.pkr.hcl
 
-clean-logs:
+clean-logs: ## Remove build logs
 	@rm -f build-clickhouse.log build-mongo.log build-redpanda.log
 
 # ----------------------------
 # ClickHouse AMI + SSM
 # ----------------------------
-clickhouse:
+clickhouse: ## Build ClickHouse AMI + write SSM param
 	@echo "=== Building ClickHouse AMI ==="
 	@$(PACKER) fmt clickhouse-ami.pkr.hcl
 	@$(PACKER) validate \
-	  -var "aws_region=$(AWS_REGION)" \
-	  -var "root_volume_size_gb=$(ROOT_VOLUME_SIZE_GB)" \
-	  -var "clickhouse_version=$(CLICKHOUSE_VERSION)" \
-	  -var "prometheus_version=$(PROMETHEUS_VERSION)" \
-	  -var "node_exporter_version=$(NODE_EXPORTER_VERSION)" \
-	  -var "grafana_version=$(GRAFANA_VERSION)" \
-	  clickhouse-ami.pkr.hcl
+		-var "aws_region=$(AWS_REGION)" \
+		-var "root_volume_size_gb=$(ROOT_VOLUME_SIZE_GB)" \
+		-var "clickhouse_version=$(CLICKHOUSE_VERSION)" \
+		-var "prometheus_version=$(PROMETHEUS_VERSION)" \
+		-var "node_exporter_version=$(NODE_EXPORTER_VERSION)" \
+		-var "grafana_version=$(GRAFANA_VERSION)" \
+		clickhouse-ami.pkr.hcl
 
 	@set -e; \
 	  LOG=build-clickhouse.log; \
@@ -67,18 +80,7 @@ clickhouse:
 	  VERSION="$(CLICKHOUSE_VERSION)"; \
 	  if [ -z "$$VERSION" ]; then VERSION="latest"; fi; \
 	  BUILT_AT=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
-	  JSON="$$(cat <<EOF \
-{
-  \"ami_id\": \"$$AMI_ID\",
-  \"component\": \"clickhouse\",
-  \"version\": \"$$VERSION\",
-  \"os\": \"Amazon Linux 2023\",
-  \"arch\": \"x86_64\",
-  \"root_volume_size_gb\": $(ROOT_VOLUME_SIZE_GB),
-  \"built_at\": \"$$BUILT_AT\"
-}
-EOF
-)"; \
+	  JSON="{\"ami_id\":\"$$AMI_ID\",\"component\":\"clickhouse\",\"version\":\"$$VERSION\",\"os\":\"Amazon Linux 2023\",\"arch\":\"x86_64\",\"root_volume_size_gb\":$(ROOT_VOLUME_SIZE_GB),\"built_at\":\"$$BUILT_AT\"}"; \
 	  echo "[clickhouse] Writing SSM parameter $(SSM_AMI_PREFIX)/base"; \
 	  aws ssm put-parameter \
 	    --region "$(AWS_REGION)" \
@@ -92,14 +94,14 @@ EOF
 # ----------------------------
 # Mongo AMI + SSM
 # ----------------------------
-mongo:
+mongo: ## Build Mongo AMI + write SSM param
 	@echo "=== Building Mongo AMI ==="
 	@$(PACKER) fmt mongo-ami.pkr.hcl
 	@$(PACKER) validate \
-	  -var "aws_region=$(AWS_REGION)" \
-	  -var "root_volume_size_gb=$(ROOT_VOLUME_SIZE_GB)" \
-	  -var "mongo_major=$(MONGO_MAJOR)" \
-	  mongo-ami.pkr.hcl
+		-var "aws_region=$(AWS_REGION)" \
+		-var "root_volume_size_gb=$(ROOT_VOLUME_SIZE_GB)" \
+		-var "mongo_major=$(MONGO_MAJOR)" \
+		mongo-ami.pkr.hcl
 
 	@set -e; \
 	  LOG=build-mongo.log; \
@@ -118,18 +120,7 @@ mongo:
 	  echo "[mongo] Built AMI $$AMI_ID"; \
 	  VERSION="$(MONGO_MAJOR).x"; \
 	  BUILT_AT=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
-	  JSON="$$(cat <<EOF \
-{
-  \"ami_id\": \"$$AMI_ID\",
-  \"component\": \"mongo\",
-  \"version\": \"$$VERSION\",
-  \"os\": \"Amazon Linux 2023\",
-  \"arch\": \"x86_64\",
-  \"root_volume_size_gb\": $(ROOT_VOLUME_SIZE_GB),
-  \"built_at\": \"$$BUILT_AT\"
-}
-EOF
-)"; \
+	  JSON="{\"ami_id\":\"$$AMI_ID\",\"component\":\"mongo\",\"version\":\"$$VERSION\",\"os\":\"Amazon Linux 2023\",\"arch\":\"x86_64\",\"root_volume_size_gb\":$(ROOT_VOLUME_SIZE_GB),\"built_at\":\"$$BUILT_AT\"}"; \
 	  echo "[mongo] Writing SSM parameter $(SSM_AMI_PREFIX)/mongo"; \
 	  aws ssm put-parameter \
 	    --region "$(AWS_REGION)" \
@@ -143,13 +134,13 @@ EOF
 # ----------------------------
 # Redpanda AMI + SSM
 # ----------------------------
-redpanda:
+redpanda: ## Build Redpanda AMI + write SSM param
 	@echo "=== Building Redpanda AMI ==="
 	@$(PACKER) fmt redpanda-ami.pkr.hcl
 	@$(PACKER) validate \
-	  -var "aws_region=$(AWS_REGION)" \
-	  -var "root_volume_size_gb=$(ROOT_VOLUME_SIZE_GB)" \
-	  redpanda-ami.pkr.hcl
+		-var "aws_region=$(AWS_REGION)" \
+		-var "root_volume_size_gb=$(ROOT_VOLUME_SIZE_GB)" \
+		redpanda-ami.pkr.hcl
 
 	@set -e; \
 	  LOG=build-redpanda.log; \
@@ -167,18 +158,7 @@ redpanda:
 	  echo "[redpanda] Built AMI $$AMI_ID"; \
 	  VERSION="latest"; \
 	  BUILT_AT=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
-	  JSON="$$(cat <<EOF \
-{
-  \"ami_id\": \"$$AMI_ID\",
-  \"component\": \"redpanda\",
-  \"version\": \"$$VERSION\",
-  \"os\": \"Amazon Linux 2023\",
-  \"arch\": \"x86_64\",
-  \"root_volume_size_gb\": $(ROOT_VOLUME_SIZE_GB),
-  \"built_at\": \"$$BUILT_AT\"
-}
-EOF
-)"; \
+	  JSON="{\"ami_id\":\"$$AMI_ID\",\"component\":\"redpanda\",\"version\":\"$$VERSION\",\"os\":\"Amazon Linux 2023\",\"arch\":\"x86_64\",\"root_volume_size_gb\":$(ROOT_VOLUME_SIZE_GB),\"built_at\":\"$$BUILT_AT\"}"; \
 	  echo "[redpanda] Writing SSM parameter $(SSM_AMI_PREFIX)/redpanda"; \
 	  aws ssm put-parameter \
 	    --region "$(AWS_REGION)" \

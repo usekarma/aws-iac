@@ -189,6 +189,34 @@ $SUDO systemctl daemon-reload || true
 $SUDO systemctl enable --now grafana-server || true
 echo "[ami-obs] Grafana installed and (attempted) started."
 
+# ============================
+# Grafana auth config: no login form, anonymous via ALB+SSO
+# ============================
+GRAFANA_INI="/etc/grafana/grafana.ini"
+
+$SUDO tee "$GRAFANA_INI" >/dev/null <<'EOF'
+[server]
+# ALB terminates SSL/host; this keeps Grafana happy for redirects
+root_url = %(protocol)s://%(domain)s/
+
+[auth]
+# Hide the native login form; rely on ALB + Cognito instead
+disable_login_form = true
+signout_redirect_url = /logout
+
+[auth.anonymous]
+enabled = true
+org_role = Admin
+
+[security]
+admin_user = admin
+admin_password = admin
+EOF
+
+$SUDO chown grafana:grafana "$GRAFANA_INI" || true
+$SUDO systemctl restart grafana-server || true
+echo "[ami-obs] Grafana configured for anonymous auth + external /logout."
+
 # =====================================================================================
 # Node Exporter (binary install + systemd)
 # =====================================================================================
