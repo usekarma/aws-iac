@@ -311,16 +311,28 @@ resource "aws_lb_listener" "http" {
 }
 
 # ---------- Global logout endpoint ----------
-# /logout -> logout ECS service (which then calls Cognito /logout and redirects back)
+# Any https://*.usekarma.dev/logout hits the logout ECS service,
+# which clears cookies and calls Cognito /logout.
 resource "aws_lb_listener_rule" "logout" {
   listener_arn = aws_lb_listener.https.arn
-  priority     = 5 # must be lower than 10 so it matches before grafana/prom/clickhouse/etc.
+  priority     = 1
 
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.logout.arn
   }
 
+  # Match any subdomain of your main domain (grafana, prometheus, clickhouse, mongo, redpanda)
+  condition {
+    host_header {
+      values = [
+        local.domain_name,                          # usekarma.dev (if you ever hit it directly)
+        format("*.%s", local.domain_name)           # *.usekarma.dev
+      ]
+    }
+  }
+
+  # Only for the /logout path
   condition {
     path_pattern {
       values = ["/logout"]

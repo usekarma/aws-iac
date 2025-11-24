@@ -46,6 +46,8 @@ locals {
     local.cognito_sso.region
   )
 
+  logout_cookie_domain = try(local.config.logout_cookie_domain, ".usekarma.dev")
+
   # Where Cognito should send the user after logout (Grafana as canonical landing page)
   logout_redirect_uri = format("https://%s/", local.grafana_host)
 }
@@ -177,6 +179,10 @@ resource "aws_ecs_task_definition" "logout" {
         {
           name  = "LOGOUT_REDIRECT"
           value = local.logout_redirect_uri
+        },
+        {
+          name  = "COOKIE_DOMAIN"
+          value = local.logout_cookie_domain
         }
       ]
 
