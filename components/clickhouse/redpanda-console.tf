@@ -113,13 +113,17 @@ resource "aws_ecs_task_definition" "redpanda_console" {
         { "containerPort": 8080, "hostPort": 8080, "protocol": "tcp" }
       ],
       "environment": [
-        # Basic connectivity – adjust to your cluster
+        # -------- Core: broker connectivity --------
         { "name": "KAFKA_BROKERS", "value": local.redpanda_brokers },
 
-        # Enable and point to Kafka Connect (Debezium)
-        { "name": "CONNECT_ENABLED", "value": "true" },
-        { "name": "CONNECT_CLUSTERS_0_NAME", "value": "connect-cluster" },
-        { "name": "CONNECT_CLUSTERS_0_URL",  "value": local.kconnect_url },
+        # -------- Disable ALL Console-side auth (no login screen) --------
+        { "name": "AUTHENTICATION_BASIC_ENABLED", "value": "false" },
+        { "name": "AUTHENTICATION_OIDC_ENABLED",  "value": "false" },
+
+        # -------- Connect UI (optional, keep if you want it) --------
+        { "name": "CONNECT_ENABLED",            "value": "true" },
+        { "name": "CONNECT_CLUSTERS_0_NAME",    "value": "connect-cluster" },
+        { "name": "CONNECT_CLUSTERS_0_URL",     "value": local.kconnect_url },
 
         # Optional: schema registry
         { "name": "SCHEMAREGISTRY_ENABLED", "value": "false" }
