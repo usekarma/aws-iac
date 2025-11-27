@@ -1,5 +1,5 @@
 data "external" "resolved" {
-  program = ["python3", "${path.module}/nickname_resolver.py"]
+  program = ["python", "${path.module}/nickname_resolver.py"]
   query = {
     iac_base  = var.iac_prefix
     component = var.component_name
