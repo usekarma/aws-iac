@@ -66,8 +66,15 @@ locals {
   #
   # SG Allow Rules
   #
+  # Base SGs that are always allowed to talk to Mongo:
+  # - ClickHouse SG (metrics / CDC workflows)
+  # - VPC default SG (so Lambdas using default_sg_id can reach Mongo)
+  # - Optional kconnect SG
   mongo_base_sg_map = merge(
-    { clickhouse = aws_security_group.clickhouse.id },
+    {
+      clickhouse   = aws_security_group.clickhouse.id
+      vpc_default  = local.vpc_sg_id
+    },
     local.enable_kconnect ? { kconnect = aws_security_group.kconnect[0].id } : {}
   )
 
@@ -83,6 +90,7 @@ locals {
 
   mongo_allowed_cidrs = toset(try(local.config.mongo_allowed_cidrs, []))
 }
+
 # AMI metadata from SSM
 data "aws_ssm_parameter" "mongo_ami" {
   name = "${var.iac_prefix}/${var.component_name}/ami/mongo"
