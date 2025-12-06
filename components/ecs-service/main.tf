@@ -174,11 +174,6 @@ resource "aws_ecs_service" "this" {
   tags = local.tags
 }
 
-# ---------- Publish service runtime ----------
-locals {
-  runtime_path = "/iac/ecs-service/${var.nickname}/runtime"
-}
-
 resource "aws_ssm_parameter" "runtime" {
   name      = local.runtime_path
   type      = "String"

@@ -62,22 +62,9 @@ data "aws_ssm_parameter" "vpc_runtime" {
 }
 
 locals {
-  # Raw decoded JSON from the VPC runtime param
-  vpc_runtime_decoded_raw = {
+  vpc_runtime_decoded = {
     for fname, param in data.aws_ssm_parameter.vpc_runtime :
     fname => jsondecode(param.value)
-  }
-
-  # Normalized view with explicit fields we care about.
-  # You can later extend the JSON with e.g. "lambda_extra_sg_ids"
-  # and they’ll automatically be picked up here.
-  vpc_runtime_decoded = {
-    for fname, v in local.vpc_runtime_decoded_raw :
-    fname => {
-      private_subnet_ids = try(v.private_subnet_ids, [])
-      default_sg_id      = try(v.default_sg_id, null)
-      lambda_extra_sg_ids = try(v.lambda_extra_sg_ids, [])
-    }
   }
 }
 
@@ -196,15 +183,8 @@ resource "aws_lambda_function" "placeholder" {
     for_each = contains(keys(local.vpc_runtime_decoded), each.key) ? [1] : []
 
     content {
-      subnet_ids = local.vpc_runtime_decoded[each.key].private_subnet_ids
-
-      # 👇 Always include the default VPC SG, plus any optional lambda_extra_sg_ids
-      security_group_ids = compact(
-        concat(
-          [local.vpc_runtime_decoded[each.key].default_sg_id],
-          local.vpc_runtime_decoded[each.key].lambda_extra_sg_ids
-        )
-      )
+      subnet_ids         = local.vpc_runtime_decoded[each.key].private_subnet_ids
+      security_group_ids = [local.vpc_runtime_decoded[each.key].default_sg_id]
     }
   }
 
@@ -217,7 +197,29 @@ resource "aws_lambda_function" "placeholder" {
 }
 
 #############################################
-# NOTE: No aws_ssm_parameter "runtime" here.
-# Runtime ARNs (/iac/lambda/<fn>/runtime) are owned by deploy_lambda.py
-# or whatever deployment pipeline you're using.
+# Runtime SSM Params (owned structurally by Terraform,
+# value content owned by deploy_lambda.py)
 #############################################
+
+resource "aws_ssm_parameter" "runtime" {
+  for_each = local.functions
+
+  # e.g. /iac/lambda/seed-sales-data/runtime
+  name = "${var.iac_prefix}/${var.component_name}/${each.key}/runtime"
+  type = "String"
+
+  # Default placeholder value; deploy_lambda.py will overwrite this
+  # with {"arn": "..."} etc.  Terraform won't try to revert it.
+  value = jsonencode({
+    function_name = aws_lambda_function.placeholder[each.key].function_name,
+    placeholder   = true
+  })
+
+  overwrite = true
+  tier      = "Standard"
+
+  lifecycle {
+    # Let deploy_lambda.py own the actual contents
+    ignore_changes = [value]
+  }
+}
