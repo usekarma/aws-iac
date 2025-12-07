@@ -1,15 +1,59 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONNECTOR_JSON_PATH="/usr/local/bin/mongo-cdc-sales.json"
-KCONNECT_HOST="${KCONNECT_HOST}"
-MONGO_CONNECTION_STRING="${MONGO_CONNECTION_STRING}"
+# --------------------------------------------------------------------
+# Debezium MongoDB CDC bootstrap
+#
+# Goals:
+#   - Single "core" connector for multiple Mongo DBs (sales + reports)
+#   - Per-collection topics (Debezium defaults), e.g.:
+#       mongo.sales.orders
+#       mongo.sales.customers
+#       mongo.reports.report_runs
+#   - Idempotent and safe to re-run
+#
+# Required env:
+#   - KCONNECT_HOST              (host or host:port for Kafka Connect, port defaults to 8083)
+#   - MONGO_CONNECTION_STRING    (standard Mongo connection string)
+#
+# Optional env:
+#   - CONNECTOR_NAME             (default: mongo-cdc-core)
+#   - CONNECTOR_JSON_PATH        (default: /usr/local/bin/mongo-cdc-core.json)
+# --------------------------------------------------------------------
+
+CONNECTOR_NAME="${CONNECTOR_NAME:-mongo-cdc-core}"
+CONNECTOR_JSON_PATH="${CONNECTOR_JSON_PATH:-/usr/local/bin/${CONNECTOR_NAME}.json}"
+
+KCONNECT_HOST="${KCONNECT_HOST:-}"
+MONGO_CONNECTION_STRING="${MONGO_CONNECTION_STRING:-}"
+
+if [[ -z "${MONGO_CONNECTION_STRING}" ]]; then
+  echo "[kconnect-bootstrap] ERROR: MONGO_CONNECTION_STRING is not set."
+  exit 1
+fi
+
+if [[ -z "${KCONNECT_HOST}" ]]; then
+  echo "[kconnect-bootstrap] KCONNECT_HOST not set; skipping connector bootstrap."
+  exit 0
+fi
+
+# Normalize host (allow host:port or just host)
+if [[ "${KCONNECT_HOST}" == *:* ]]; then
+  KCONNECT_BASE="http://${KCONNECT_HOST}"
+else
+  KCONNECT_BASE="http://${KCONNECT_HOST}:8083"
+fi
 
 echo "[kconnect-bootstrap] Writing Debezium Mongo connector config to ${CONNECTOR_JSON_PATH}"
 
+# Notes about the config we write:
+#   - database.include.list: "sales,reports"
+#   - collection.include.list: sales.* + reports.report_runs
+#   - topic.prefix: "mongo" (Debezium default per-collection topics)
+#   - snapshot.mode: "initial" to backfill existing data on first run
 cat >"${CONNECTOR_JSON_PATH}" <<EOF
 {
-  "name": "mongo-cdc-sales",
+  "name": "${CONNECTOR_NAME}",
   "config": {
     "connector.class": "io.debezium.connector.mongodb.MongoDbConnector",
     "tasks.max": "1",
@@ -17,15 +61,10 @@ cat >"${CONNECTOR_JSON_PATH}" <<EOF
     "mongodb.connection.string": "${MONGO_CONNECTION_STRING}",
     "mongodb.name": "mongo",
 
-    "database.include.list": "sales",
-    "collection.include.list": "sales.customers,sales.vendors,sales.products,sales.inventory,sales.orders",
+    "database.include.list": "sales,reports",
+    "collection.include.list": "sales.customers,sales.vendors,sales.products,sales.inventory,sales.orders,reports.report_runs",
 
     "topic.prefix": "mongo",
-    "transforms": "route",
-    "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
-    "transforms.route.regex": ".*",
-    "transforms.route.replacement": "mongo.sales.cdc",
-
     "snapshot.mode": "initial",
 
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
@@ -36,37 +75,53 @@ cat >"${CONNECTOR_JSON_PATH}" <<EOF
 }
 EOF
 
-if [[ -z "${KCONNECT_HOST}" ]]; then
-  echo "[kconnect-bootstrap] KCONNECT_HOST not set; skipping connector bootstrap."
-  exit 0
-fi
-
-echo "[kconnect-bootstrap] Waiting for Kafka Connect at ${KCONNECT_HOST}:8083..."
+echo "[kconnect-bootstrap] Waiting for Kafka Connect at ${KCONNECT_BASE}..."
 for i in {1..60}; do
-  if curl -fsS "http://${KCONNECT_HOST}:8083/connectors" >/dev/null 2>&1; then
+  if curl -fsS "${KCONNECT_BASE}/connectors" >/dev/null 2>&1; then
     echo "[kconnect-bootstrap] Kafka Connect is up."
     break
   fi
+  echo "[kconnect-bootstrap] Kafka Connect not ready yet (attempt ${i}/60); sleeping 5s..."
   sleep 5
+  if [[ "${i}" -eq 60 ]]; then
+    echo "[kconnect-bootstrap] ERROR: Kafka Connect did not become ready in time."
+    exit 1
+  fi
 done
 
-echo "[kconnect-bootstrap] Applying Debezium Mongo connector mongo-cdc-sales..."
-CREATE_RESP="$(curl -sS -X POST "http://${KCONNECT_HOST}:8083/connectors" \
+# --------------------------------------------------------------------
+# Idempotent upsert:
+#   - If connector exists, PUT to /config updates it.
+#   - If it doesn't exist, PUT creates it.
+# --------------------------------------------------------------------
+echo "[kconnect-bootstrap] Applying Debezium Mongo connector ${CONNECTOR_NAME}..."
+
+PUT_URL="${KCONNECT_BASE}/connectors/${CONNECTOR_NAME}/config"
+RESP_BODY="/tmp/${CONNECTOR_NAME}_resp.json"
+
+CREATE_OR_UPDATE_RESP="$(curl -sS -o "${RESP_BODY}" -w "%{http_code}" \
+  -X PUT "${PUT_URL}" \
   -H "Content-Type: application/json" \
   --data-binary "@${CONNECTOR_JSON_PATH}" || true)"
 
-echo "${CREATE_RESP}"
+HTTP_CODE="${CREATE_OR_UPDATE_RESP}"
 
-# If it already exists, POST can return 409 with an error body – that's fine for idempotent bootstrap.
-# We still go on to check status.
+echo "[kconnect-bootstrap] Connector PUT HTTP status: ${HTTP_CODE}"
+echo "[kconnect-bootstrap] Response body:"
+cat "${RESP_BODY}" || true
+echo
 
-echo "[kconnect-bootstrap] Checking connector status..."
+if [[ -z "${HTTP_CODE}" || "${HTTP_CODE}" -lt 200 || "${HTTP_CODE}" -ge 300 ]]; then
+  echo "[kconnect-bootstrap] WARN: non-2xx from connector PUT; continuing to status check."
+fi
+
+echo "[kconnect-bootstrap] Checking connector status for ${CONNECTOR_NAME}..."
 for i in {1..30}; do
-  STATUS_JSON="$(curl -sS "http://${KCONNECT_HOST}:8083/connectors/mongo-cdc-sales/status" || true)"
+  STATUS_JSON="$(curl -sS "${KCONNECT_BASE}/connectors/${CONNECTOR_NAME}/status" || true)"
 
-  if [[ "${STATUS_JSON}" == *'"name":"mongo-cdc-sales"'* ]]; then
+  if [[ "${STATUS_JSON}" == *"\"name\":\"${CONNECTOR_NAME}\""* ]]; then
     echo "${STATUS_JSON}"
-    echo "[kconnect-bootstrap] Connector mongo-cdc-sales status retrieved."
+    echo "[kconnect-bootstrap] Connector ${CONNECTOR_NAME} status retrieved."
     exit 0
   fi
 

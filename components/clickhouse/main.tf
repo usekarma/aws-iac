@@ -330,20 +330,27 @@ resource "aws_s3_object" "kafka_clickhouse_bootstrap" {
   tags   = local.tags
 }
 
-resource "aws_s3_object" "clickhouse_schema_views" {
-  bucket = local.backup_bucket_name
-  key    = "${local.backup_prefix}/scripts/clickhouse-schema-views.sh"
-  source = "${path.module}/scripts/clickhouse-schema-views.sh"
-  etag   = filemd5("${path.module}/scripts/clickhouse-schema-views.sh")
-  tags   = local.tags
-}
-
 resource "aws_s3_object" "grafana_bootstrap" {
   bucket = local.backup_bucket_name
   key    = "${local.backup_prefix}/scripts/grafana-bootstrap.sh"
   source = "${path.module}/scripts/grafana-bootstrap.sh"
   etag   = filemd5("${path.module}/scripts/grafana-bootstrap.sh")
   tags   = local.tags
+}
+
+# Path to your local directory
+locals {
+  schema_clickhouse_files = fileset("${path.module}/schema_clickhouse", "**/*.sql")
+}
+
+resource "aws_s3_object" "schema_clickhouse" {
+  for_each = local.schema_clickhouse_files
+
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/schema_clickhouse/${each.value}"
+  source = "${path.module}/schema_clickhouse/${each.value}"
+
+  etag = filemd5("${path.module}/schema_clickhouse/${each.value}") # auto-detect changes
 }
 
 resource "aws_s3_object" "sales_dashboard" {

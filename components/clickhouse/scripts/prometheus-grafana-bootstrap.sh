@@ -3,17 +3,28 @@ set -euxo pipefail
 
 echo "[bootstrap] Starting Prometheus/Grafana wiring..."
 
-# Expected env from userdata:
+# Expected env from userdata / launch config:
 #   CLICKHOUSE_BUCKET
 #   CLICKHOUSE_PREFIX
 #   MONGO_HOST, MONGO_EXP_PORT, MONGO_NODE_PORT
 #   REDPANDA_HOST, REDPANDA_EXP_PORT, REDPANDA_NODE_PORT
 #   KCONNECT_HOST
+#
+# Optional env (for kconnect / kafka-clickhouse scripts):
+#   MONGO_CONNECTION_STRING
+#   REDPANDA_HOST
+#   CLICKHOUSE_CLIENT
+#   CLICKHOUSE_SCHEMA_DIR
 
 : "${CLICKHOUSE_BUCKET:?CLICKHOUSE_BUCKET is required}"
 : "${CLICKHOUSE_PREFIX:?CLICKHOUSE_PREFIX is required}"
 
+S3_SCRIPTS_BASE="s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts"
+BIN_DIR="/usr/local/bin"
+
+# -------------------------------------------------------
 # Prometheus config: local + remote targets
+# -------------------------------------------------------
 cat >/etc/prometheus/prometheus.yml <<EOF
 global:
   scrape_interval: 15s
@@ -61,35 +72,24 @@ echo "[bootstrap] Prometheus config written and service restarted."
 # Download & run Kafka / ClickHouse wiring scripts
 # -------------------------------------------------------
 echo "[bootstrap] Downloading kconnect-mongo-bootstrap.sh..."
-aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/kconnect-mongo-bootstrap.sh" \
-  /root/kconnect-mongo-bootstrap.sh
-chmod +x /root/kconnect-mongo-bootstrap.sh
+aws s3 cp "${S3_SCRIPTS_BASE}/kconnect-mongo-bootstrap.sh" \
+  "${BIN_DIR}/kconnect-mongo-bootstrap.sh"
+chmod +x "${BIN_DIR}/kconnect-mongo-bootstrap.sh"
 
 echo "[bootstrap] Downloading kafka-clickhouse-bootstrap.sh..."
-aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/kafka-clickhouse-bootstrap.sh" \
-  /root/kafka-clickhouse-bootstrap.sh
-chmod +x /root/kafka-clickhouse-bootstrap.sh
-
-echo "[bootstrap] Downloading clickhouse-schema-views.sh..."
-aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/clickhouse-schema-views.sh" \
-  /usr/local/bin/clickhouse-schema-views.sh
-chmod +x /usr/local/bin/clickhouse-schema-views.sh
+aws s3 cp "${S3_SCRIPTS_BASE}/kafka-clickhouse-bootstrap.sh" \
+  "${BIN_DIR}/kafka-clickhouse-bootstrap.sh"
+chmod +x "${BIN_DIR}/kafka-clickhouse-bootstrap.sh"
 
 echo "[bootstrap] Running kconnect-mongo-bootstrap.sh..."
-/root/kconnect-mongo-bootstrap.sh > /var/log/kconnect_mongo_bootstrap.log 2>&1 || {
+"${BIN_DIR}/kconnect-mongo-bootstrap.sh" > /var/log/kconnect_mongo_bootstrap.log 2>&1 || {
   echo "[bootstrap] kconnect-mongo-bootstrap.sh failed — see /var/log/kconnect_mongo_bootstrap.log"
   exit 1
 }
 
 echo "[bootstrap] Running kafka-clickhouse-bootstrap.sh..."
-/root/kafka-clickhouse-bootstrap.sh > /var/log/kafka_clickhouse_bootstrap.log 2>&1 || {
+"${BIN_DIR}/kafka-clickhouse-bootstrap.sh" > /var/log/kafka_clickhouse_bootstrap.log 2>&1 || {
   echo "[bootstrap] kafka-clickhouse-bootstrap.sh failed — see /var/log/kafka_clickhouse_bootstrap.log"
-  exit 1
-}
-
-echo "[bootstrap] Running clickhouse-schema-views.sh..."
-/usr/local/bin/clickhouse-schema-views.sh > /var/log/clickhouse_schema_views.log 2>&1 || {
-  echo "[bootstrap] clickhouse-schema-views.sh failed — see /var/log/clickhouse_schema_views.log"
   exit 1
 }
 
@@ -97,12 +97,12 @@ echo "[bootstrap] Running clickhouse-schema-views.sh..."
 # Grafana bootstrap (dashboards, datasources, etc.)
 # -------------------------------------------------------
 echo "[bootstrap] Downloading Grafana bootstrap script..."
-aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/scripts/grafana-bootstrap.sh" \
-  /usr/local/bin/grafana-bootstrap.sh
-chmod +x /usr/local/bin/grafana-bootstrap.sh
+aws s3 cp "${S3_SCRIPTS_BASE}/grafana-bootstrap.sh" \
+  "${BIN_DIR}/grafana-bootstrap.sh"
+chmod +x "${BIN_DIR}/grafana-bootstrap.sh"
 
 echo "[bootstrap] Running Grafana bootstrap..."
-/usr/local/bin/grafana-bootstrap.sh > /var/log/grafana_bootstrap.log 2>&1 || {
+"${BIN_DIR}/grafana-bootstrap.sh" > /var/log/grafana_bootstrap.log 2>&1 || {
   echo "[bootstrap] Grafana bootstrap failed — see /var/log/grafana_bootstrap.log"
   exit 1
 }
