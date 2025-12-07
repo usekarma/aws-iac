@@ -1,15 +1,20 @@
 -- 00_raw_mongo_cdc.sql
 -- Raw Mongo CDC ingestion into ClickHouse
 --
--- Expects a query parameter:
---   {kafka_broker_list:String}
--- passed from the bootstrap script, e.g.:
---   clickhouse-client --param kafka_broker_list="redpanda:9092"
+-- Expects the bootstrap script to replace:
+--   {{KAFKA_BROKER}}
+-- with the actual broker string (e.g. "redpanda:9092")
+-- before executing this file.
 
 CREATE DATABASE IF NOT EXISTS raw;
 
--- Kafka engine table consuming ALL Mongo Debezium topics
--- that match ^mongo\.(sales|reports)\..*
+-- Kafka engine table consuming Mongo Debezium topics:
+--   mongo.sales.customers
+--   mongo.sales.vendors
+--   mongo.sales.products
+--   mongo.sales.inventory
+--   mongo.sales.orders
+--   mongo.reports.report_runs
 CREATE TABLE IF NOT EXISTS raw.kafka_mongo_cdc_raw
 (
     before            String,
@@ -22,8 +27,8 @@ CREATE TABLE IF NOT EXISTS raw.kafka_mongo_cdc_raw
 )
 ENGINE = Kafka
 SETTINGS
-    kafka_broker_list    = {kafka_broker_list:String},
-    kafka_topic_pattern  = 'mongo\\.(sales|reports)\\..+',
+    kafka_broker_list    = '{{KAFKA_BROKER}}',
+    kafka_topic_list     = 'mongo.sales.customers,mongo.sales.vendors,mongo.sales.products,mongo.sales.inventory,mongo.sales.orders,mongo.reports.report_runs',
     kafka_group_name     = 'clickhouse_mongo_cdc',
     kafka_format         = 'JSONEachRow',
     kafka_num_consumers  = 1;

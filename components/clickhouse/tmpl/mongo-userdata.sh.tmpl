@@ -269,14 +269,22 @@ if [[ -n "$AWS_REGION" && -n "$CLICKHOUSE_BUCKET" && -n "$CLICKHOUSE_PREFIX" ]];
       rm -rf /tmp/mongo-restore
       echo "[userdata-mongo] Mongo restore-from-backup flow completed."
     else
-      echo "[userdata-mongo] No dump-* backup found, bootstrapping schema via init-sales-db.js..."
-      aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema/init-sales-db.js" /usr/local/bin/init-sales-db.js
-      if [[ -s /usr/local/bin/init-sales-db.js ]]; then
-        mongosh --quiet "mongodb://127.0.0.1:${MONGO_PORT}" /usr/local/bin/init-sales-db.js \
+      echo "[userdata-mongo] No dump-* backup found, bootstrapping schema via init-sales-schema.js..."
+      aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema_mongo/init-sales-schema.js" /usr/local/bin/init-sales-schema.js
+      if [[ -s /usr/local/bin/init-sales-schema.js ]]; then
+        mongosh --quiet "mongodb://127.0.0.1:${MONGO_PORT}" /usr/local/bin/init-sales-schema.js \
           && touch "$RESTORE_MARKER" \
-          || echo "[userdata-mongo] WARNING: init-sales-db.js execution failed"
+          || echo "[userdata-mongo] WARNING: init-sales-schema.js execution failed"
       else
-        echo "[userdata-mongo] ERROR: init-sales-db.js not found or empty; skipping schema init"
+        echo "[userdata-mongo] ERROR: init-sales-schema.js not found or empty; skipping schema init"
+      fi
+      aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema_mongo/init-reports-schema.js" /usr/local/bin/init-reports-schema.js
+      if [[ -s /usr/local/bin/init-reports-schema.js ]]; then
+        mongosh --quiet "mongodb://127.0.0.1:${MONGO_PORT}" /usr/local/bin/init-reports-schema.js \
+          && touch "$RESTORE_MARKER" \
+          || echo "[userdata-mongo] WARNING: init-reports-schema.js execution failed"
+      else
+        echo "[userdata-mongo] ERROR: init-reports-schema.js not found or empty; skipping schema init"
       fi
     fi
   fi
@@ -286,8 +294,13 @@ fi
 
 # ---------------- Download seed-sales-data.js (manual run) ---------------
 echo "[userdata-mongo] Downloading seed-sales-data.js from S3..."
-aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema/seed-sales-data.js" /usr/local/bin/seed-sales-data.js \
+aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema_mongo/seed-sales-data.js" /usr/local/bin/seed-sales-data.js \
   || echo "[userdata-mongo] WARNING: failed to download seed-sales-data.js"
+
+# ---------------- Download seed-reports-data.js (manual run) ---------------
+echo "[userdata-mongo] Downloading seed-reports-data.js from S3..."
+aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema_mongo/seed-reports-data.js" /usr/local/bin/generate-report-traffic.js \
+  || echo "[userdata-mongo] WARNING: failed to download seed-reports-data.js"
 
 # ---------------- Exporters (Mongo & Node) ---------------
 # Detect arch for GitHub release assets

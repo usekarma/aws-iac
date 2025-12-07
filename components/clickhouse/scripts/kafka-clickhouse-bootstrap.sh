@@ -1,36 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --------------------------------------------------------------------
-# Kafka → ClickHouse CDC bootstrap
-#
-# Responsibilities:
-#   - Resolve REDPANDA_HOST → broker (host:port)
-#   - Sync ClickHouse schema files from S3 into a local schema dir
-#   - Apply raw CDC schema (00_raw_mongo_cdc.sql) with kafka_broker_list param
-#   - Apply all remaining schema files (NN_*.sql) in order
-#
-# Required env:
-#   - REDPANDA_HOST               (host or host:port for Redpanda/Kafka)
-#   - CLICKHOUSE_BUCKET
-#   - CLICKHOUSE_PREFIX
-#
-# Optional env:
-#   - CLICKHOUSE_CLIENT           (default: clickhouse-client)
-#   - CLICKHOUSE_SCHEMA_DIR       (default: /opt/clickhouse-schema/schema)
-# --------------------------------------------------------------------
+echo "[kafka-ch-bootstrap] Starting Kafka → ClickHouse bootstrap..."
 
-REDPANDA_HOST="${REDPANDA_HOST:-}"
-CLICKHOUSE_CLIENT="${CLICKHOUSE_CLIENT:-clickhouse-client}"
-CLICKHOUSE_SCHEMA_DIR="${CLICKHOUSE_SCHEMA_DIR:-/opt/clickhouse-schema/schema}"
-
+: "${REDPANDA_HOST:?REDPANDA_HOST is required}"
 : "${CLICKHOUSE_BUCKET:?CLICKHOUSE_BUCKET is required}"
 : "${CLICKHOUSE_PREFIX:?CLICKHOUSE_PREFIX is required}"
 
-if [[ -z "${REDPANDA_HOST}" ]]; then
-  echo "[kafka-ch-bootstrap] ERROR: REDPANDA_HOST is not set."
-  exit 1
-fi
+CLICKHOUSE_CLIENT="${CLICKHOUSE_CLIENT:-clickhouse-client}"
+CLICKHOUSE_SCHEMA_DIR="${CLICKHOUSE_SCHEMA_DIR:-/usr/local/bin/schema_clickhouse}"
+AWS_CLI="${AWS_CLI:-aws}"
 
 # Normalize broker (allow host:port or just host)
 if [[ "${REDPANDA_HOST}" == *:* ]]; then
@@ -39,34 +18,37 @@ else
   BROKER="${REDPANDA_HOST}:9092"
 fi
 
-SCHEMA_S3_BASE="s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema"
-
 echo "[kafka-ch-bootstrap] Using broker ${BROKER}"
-echo "[kafka-ch-bootstrap] Syncing schema from ${SCHEMA_S3_BASE} to ${CLICKHOUSE_SCHEMA_DIR}..."
 
+# Ensure local schema dir exists
 mkdir -p "${CLICKHOUSE_SCHEMA_DIR}"
 
-# Pull schema files from S3; requires awscli on the instance
-aws s3 sync "${SCHEMA_S3_BASE}/" "${CLICKHOUSE_SCHEMA_DIR}/"
+SCHEMA_S3_BASE="s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema_clickhouse"
+echo "[kafka-ch-bootstrap] Syncing schema from ${SCHEMA_S3_BASE} to ${CLICKHOUSE_SCHEMA_DIR}..."
+"${AWS_CLI}" s3 sync "${SCHEMA_S3_BASE}/" "${CLICKHOUSE_SCHEMA_DIR}/"
 
 RAW_SCHEMA_FILE="${CLICKHOUSE_SCHEMA_DIR}/00_raw_mongo_cdc.sql"
 
+echo "[kafka-ch-bootstrap] DEBUG: listing schema dir:"
+ls -l "${CLICKHOUSE_SCHEMA_DIR}" || true
+
 if [[ ! -f "${RAW_SCHEMA_FILE}" ]]; then
-  echo "[kafka-ch-bootstrap] ERROR: raw schema file not found after sync: ${RAW_SCHEMA_FILE}"
+  echo "[kafka-ch-bootstrap] ERROR: raw schema file not found: ${RAW_SCHEMA_FILE}"
   exit 1
 fi
 
-echo "[kafka-ch-bootstrap] Applying raw CDC schema from ${RAW_SCHEMA_FILE}..."
+# --------------------------------------------------------------------
+# Apply raw CDC schema (template {{KAFKA_BROKER}} → actual broker)
+# --------------------------------------------------------------------
+TMP_SQL="/tmp/00_raw_mongo_cdc_rendered.sql"
+sed "s/{{KAFKA_BROKER}}/${BROKER}/g" "${RAW_SCHEMA_FILE}" > "${TMP_SQL}"
 
-# Apply raw CDC schema with broker param
-"${CLICKHOUSE_CLIENT}" \
-  --param kafka_broker_list="${BROKER}" \
-  --multiquery < "${RAW_SCHEMA_FILE}"
-
-echo "[kafka-ch-bootstrap] Raw CDC tables and MV are in place."
+echo "[kafka-ch-bootstrap] Applying raw CDC schema from ${TMP_SQL}..."
+"${CLICKHOUSE_CLIENT}" --multiquery < "${TMP_SQL}"
+echo "[kafka-ch-bootstrap] Raw CDC schema applied successfully."
 
 # --------------------------------------------------------------------
-# Apply remaining schema files (domain + SLA) from schema dir
+# Apply remaining schema files (domain + SLA), sorted by filename
 # --------------------------------------------------------------------
 echo "[kafka-ch-bootstrap] Applying domain and SLA schema from ${CLICKHOUSE_SCHEMA_DIR}..."
 
@@ -79,12 +61,15 @@ if [[ ${#SCHEMA_FILES[@]} -eq 0 ]]; then
 fi
 
 for file in "${SCHEMA_FILES[@]}"; do
-  # Skip the raw file we already applied
+  # 00_raw_mongo_cdc.sql is already applied via TMP_SQL
   if [[ "${file}" == "${RAW_SCHEMA_FILE}" ]]; then
     continue
   fi
-  echo "[kafka-ch-bootstrap] Applying ${file}..."
-  "${CLICKHOUSE_CLIENT}" --multiquery < "${file}"
+
+  base="$(basename "${file}")"
+  echo "[kafka-ch-bootstrap] Applying ${base}..."
+  sed "s/{{KAFKA_BROKER}}/${BROKER}/g" "${file}" \
+    | "${CLICKHOUSE_CLIENT}" --multiquery
 done
 
 echo "[kafka-ch-bootstrap] ClickHouse CDC + schema bootstrap completed."

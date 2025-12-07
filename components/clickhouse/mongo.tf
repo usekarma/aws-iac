@@ -236,18 +236,34 @@ resource "aws_volume_attachment" "mongo_data" {
 # SCHEMA BOOTSTRAP SCRIPTS
 ###################################################
 
+resource "aws_s3_object" "init_reports_db" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/schema_mongo/init-reports-schema.js"
+  source = "${path.module}/schema_mongo/init-reports-schema.js"
+  etag   = filemd5("${path.module}/schema_mongo/init-reports-schema.js")
+  tags   = local.tags
+}
+
 resource "aws_s3_object" "init_sales_db" {
   bucket = local.backup_bucket_name
-  key    = "${local.backup_prefix}/schema/init-sales-db.js"
-  source = "${path.module}/schema/init-sales-db.js"
-  etag   = filemd5("${path.module}/schema/init-sales-db.js")
+  key    = "${local.backup_prefix}/schema_mongo/init-sales-schema.js"
+  source = "${path.module}/schema_mongo/init-sales-schema.js"
+  etag   = filemd5("${path.module}/schema_mongo/init-sales-schema.js")
   tags   = local.tags
 }
 
 resource "aws_s3_object" "seed_sales_data" {
   bucket = local.backup_bucket_name
-  key    = "${local.backup_prefix}/schema/seed-sales-data.js"
-  source = "${path.module}/schema/seed-sales-data.js"
-  etag   = filemd5("${path.module}/schema/seed-sales-data.js")
+  key    = "${local.backup_prefix}/schema_mongo/seed-sales-data.js"
+  source = "${path.module}/schema_mongo/seed-sales-data.js"
+  etag   = filemd5("${path.module}/schema_mongo/seed-sales-data.js")
+  tags   = local.tags
+}
+
+resource "aws_s3_object" "seed_reports_data" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/schema_mongo/seed-reports-data.js"
+  source = "${path.module}/schema_mongo/seed-reports-data.js"
+  etag   = filemd5("${path.module}/schema_mongo/seed-reports-data.js")
   tags   = local.tags
 }
