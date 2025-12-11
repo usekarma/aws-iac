@@ -4,6 +4,10 @@ locals {
   enable_ssm_endpoints = try(local.config.enable_ssm_endpoints, true)
   single_nat_gateway   = try(local.config.single_nat_gateway, true)
 
+  # optional DHCP options
+  dhcp_domain_name         = try(local.config.dhcp_domain_name, null) # e.g. "svc.usekarma.local"
+  dhcp_domain_name_servers = try(local.config.dhcp_domain_name_servers, ["AmazonProvidedDNS"])
+
   # AZ slice
   azs = slice(data.aws_availability_zones.available.names, 0, local.az_count)
 
@@ -44,6 +48,31 @@ resource "aws_vpc" "this" {
       Name = var.nickname
     }
   )
+}
+
+###############################################
+# Optional DHCP option set (per-VPC)
+###############################################
+
+resource "aws_vpc_dhcp_options" "this" {
+  count = local.dhcp_domain_name == null ? 0 : 1
+
+  domain_name         = local.dhcp_domain_name
+  domain_name_servers = local.dhcp_domain_name_servers
+
+  tags = merge(
+    local.tags,
+    {
+      Name = "${var.nickname}-dhcp-options"
+    }
+  )
+}
+
+resource "aws_vpc_dhcp_options_association" "this" {
+  count = local.dhcp_domain_name == null ? 0 : 1
+
+  vpc_id          = aws_vpc.this.id
+  dhcp_options_id = aws_vpc_dhcp_options.this[0].id
 }
 
 resource "aws_internet_gateway" "igw" {

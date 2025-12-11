@@ -388,8 +388,10 @@ resource "aws_ssm_parameter" "runtime" {
     mongo_private_ip        = local.enable_mongo ? aws_instance.mongo[0].private_ip : null,
     mongo_port              = local.enable_mongo ? local.mongo_port                 : null,
     mongo_replset           = local.enable_mongo ? "rs0"                            : null,
-    mongo_rs_uri            = local.enable_mongo ? "mongodb://${aws_instance.mongo[0].private_ip}:${local.mongo_port}/?replicaSet=rs0" : null,
-    mongo_security_group_id = local.enable_mongo ? aws_security_group.mongo[0].id   : null
+    mongo_rs_uri            = local.mongo_connection_string,
+    mongo_security_group_id = local.enable_mongo ? aws_security_group.mongo[0].id   : null,
+    mongo_connection_string = local.mongo_connection_string,
+    kconnect_host           = local.enable_kconnect ? local.kconnect_rest_host      : null
   })
 
   overwrite = true
