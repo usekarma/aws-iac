@@ -1,0 +1,347 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Runs (Last 24h)",
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["last"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": { "decimals": 0, "unit": "none" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT count() AS runs_last_24h\nFROM sla.report_runs_v\nWHERE requested_at > now() - INTERVAL 24 HOUR;"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Failure Rate (Last 24h)",
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["last"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.02 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT countIf(status = 'failed') / count() AS failure_rate\nFROM sla.report_runs_v\nWHERE requested_at > now() - INTERVAL 24 HOUR;"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Avg Total Latency (sec, Last 24h)",
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["last"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 30 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT avg(total_secs) AS avg_total_secs\nFROM sla.report_runs_v\nWHERE requested_at > now() - INTERVAL 24 HOUR;"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "SLA Breaches >10s (Last 24h)",
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["last"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT count() AS sla_breaches\nFROM sla.report_runs_v\nWHERE total_secs > 10\n  AND requested_at > now() - INTERVAL 24 HOUR;"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Runs Over Time",
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": {
+        "defaults": { "decimals": 0, "unit": "none" },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT\n  toStartOfInterval(requested_at, INTERVAL 5 MINUTE) AS t,\n  count() AS runs\nFROM sla.report_runs_v\nWHERE $__timeFilter(requested_at)\nGROUP BY t\nORDER BY t;"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "SLA % Met Over Time (10s & 30s)",
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": {
+        "defaults": { "decimals": 1, "unit": "percent" },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT\n  window_start AS t,\n  pct_met_10s,\n  pct_met_30s\nFROM sla.report_runs_5m_v\nWHERE $__timeFilter(window_start)\nORDER BY t;"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "barchart",
+      "title": "SLA Tier Distribution",
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 12 },
+      "fieldConfig": {
+        "defaults": { "decimals": 0, "unit": "none" },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "legend": { "displayMode": "list", "placement": "right" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT\n  sla_tier,\n  count() AS runs\nFROM sla.report_runs_tier_v\nWHERE $__timeFilter(requested_at)\nGROUP BY sla_tier\nORDER BY runs DESC;"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "barchart",
+      "title": "Average Total Latency by Report Type",
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 12 },
+      "fieldConfig": {
+        "defaults": { "decimals": 1, "unit": "s" },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "legend": { "displayMode": "list", "placement": "right" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT\n  report_type,\n  avg(total_secs) AS avg_total_secs\nFROM sla.report_runs_v\nWHERE $__timeFilter(requested_at)\nGROUP BY report_type\nORDER BY avg_total_secs DESC;"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "barchart",
+      "title": "Failure Rate by Report Type",
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 12 },
+      "fieldConfig": {
+        "defaults": { "decimals": 1, "unit": "percentunit" },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "legend": { "displayMode": "list", "placement": "right" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT\n  report_type,\n  countIf(status = 'failed') / count() AS failure_rate\nFROM sla.report_runs_v\nWHERE $__timeFilter(requested_at)\nGROUP BY report_type\nORDER BY failure_rate DESC;"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Top 20 Slowest Runs",
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "fieldConfig": {
+        "defaults": { "decimals": 1, "unit": "s" },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": { "countRows": true }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT\n  requested_at,\n  subscriber_id,\n  report_type,\n  status,\n  total_secs,\n  queue_secs,\n  run_secs\nFROM sla.report_runs_v\nORDER BY total_secs DESC\nLIMIT 20;"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Recent Failed Runs",
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "fieldConfig": {
+        "defaults": { "decimals": 1, "unit": "s" },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": { "countRows": true }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT\n  requested_at,\n  subscriber_id,\n  report_type,\n  status,\n  error_code,\n  error_message,\n  total_secs\nFROM sla.report_runs_v\nWHERE status = 'failed'\nORDER BY requested_at DESC\nLIMIT 50;"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["sla", "reports", "clickhouse"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "1h"]
+  },
+  "timezone": "",
+  "title": "Reporting SLA Observability",
+  "uid": null,
+  "version": 1,
+  "weekStart": ""
+}
