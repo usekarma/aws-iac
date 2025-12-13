@@ -33,8 +33,6 @@ export KCONNECT_HOST="${KCONNECT_HOST}"
 export PROMETHEUS_VER="${PROMETHEUS_VER}"          # e.g., 2.55.1
 export NODEEXP_VER="${NODEEXP_VER}"                # e.g., 1.8.2
 
-export GRAFANA_DASHBOARD_KEY="${GRAFANA_DASHBOARD_KEY}"
-
 # ---------------- Wait for basic network ----------------
 for i in {1..30}; do
   curl -fsS https://aws.amazon.com >/dev/null && break || sleep 2

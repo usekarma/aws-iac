@@ -267,15 +267,13 @@ resource "aws_instance" "clickhouse" {
     REDPANDA_EXP_PORT   = local.enable_redpanda ? local.redpanda_exporter_port                              : 0
     REDPANDA_NODE_PORT  = local.enable_redpanda ? local.redpanda_nodeexp_port                               : 0
     REDPANDA_BROKERS    = local.enable_redpanda ? format("%s:%d", aws_instance.redpanda[0].private_ip, local.redpanda_port) : ""
-    REDPANDA_TOPIC      = local.enable_redpanda ? local.redpanda_topic                                      : ""
+    REDPANDA_TOPIC      = local.enable_redpanda ? local.redpanda_topic                                      : 0
     REDPANDA_PARTITIONS = local.enable_redpanda ? local.redpanda_partitions                                 : 0
     REDPANDA_RETMS      = local.enable_redpanda ? local.redpanda_retention                                  : 0
 
     # Connector / Mongo connection (optional)
     MONGO_CONNECTION_STRING = local.enable_mongo    ? local.mongo_connection_string : ""
     KCONNECT_HOST           = local.enable_kconnect ? local.kconnect_rest_host      : ""
-
-    GRAFANA_DASHBOARD_KEY = "${local.backup_prefix}/dashboards/mongo-clickhouse-sales-orders.json"
 
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id
@@ -293,7 +291,7 @@ resource "aws_instance" "clickhouse" {
     aws_s3_object.kconnect_mongo_bootstrap,
     aws_s3_object.kafka_clickhouse_bootstrap,
     aws_s3_object.grafana_bootstrap,
-    aws_s3_object.sales_dashboard,
+    aws_s3_object.grafana_dashboards,
     aws_instance.mongo,
     aws_instance.redpanda,
     aws_ecs_service.kconnect,
@@ -353,11 +351,13 @@ resource "aws_s3_object" "schema_clickhouse" {
   etag = filemd5("${path.module}/schema_clickhouse/${each.value}") # auto-detect changes
 }
 
-resource "aws_s3_object" "sales_dashboard" {
+resource "aws_s3_object" "grafana_dashboards" {
+  for_each = fileset("${path.module}/dashboards", "*.json")
+
   bucket = local.backup_bucket_name
-  key    = "${local.backup_prefix}/dashboards/mongo-clickhouse-sales-orders.json"
-  source = "${path.module}/dashboards/mongo-clickhouse-sales-orders.json"
-  etag   = filemd5("${path.module}/dashboards/mongo-clickhouse-sales-orders.json")
+  key    = "${local.backup_prefix}/dashboards/${each.value}"
+  source = "${path.module}/dashboards/${each.value}"
+  etag   = filemd5("${path.module}/dashboards/${each.value}")
   tags   = local.tags
 }
 

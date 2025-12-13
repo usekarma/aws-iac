@@ -299,7 +299,7 @@ aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema_mongo/seed-sale
 
 # ---------------- Download seed-reports-data.js (manual run) ---------------
 echo "[userdata-mongo] Downloading seed-reports-data.js from S3..."
-aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema_mongo/seed-reports-data.js" /usr/local/bin/generate-report-traffic.js \
+aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/schema_mongo/seed-reports-data.js" /usr/local/bin/seed-reports-data.js \
   || echo "[userdata-mongo] WARNING: failed to download seed-reports-data.js"
 
 # ---------------- Exporters (Mongo & Node) ---------------

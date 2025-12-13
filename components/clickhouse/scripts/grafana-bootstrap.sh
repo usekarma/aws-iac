@@ -14,15 +14,16 @@ PROM_URL="${PROM_URL:-http://127.0.0.1:9090}"
 PROM_DS_NAME="${PROM_DS_NAME:-Prometheus}"
 
 # ClickHouse config
-CLICKHOUSE_URL="${CLICKHOUSE_URL:-http://127.0.0.1:8123}"          # not used by plugin but kept for clarity
+CLICKHOUSE_URL="${CLICKHOUSE_URL:-http://127.0.0.1:8123}"          # HTTP endpoint (for Altinity plugin)
 CLICKHOUSE_DS_NAME="${CLICKHOUSE_DS_NAME:-ClickHouse}"
 CLICKHOUSE_DB="${CLICKHOUSE_DB:-sales}"
-CLICKHOUSE_PLUGIN_TYPE="${CLICKHOUSE_PLUGIN_TYPE:-grafana-clickhouse-datasource}"
+# Altinity plugin id:
+CLICKHOUSE_PLUGIN_TYPE="${CLICKHOUSE_PLUGIN_TYPE:-vertamedia-clickhouse-datasource}"
 CLICKHOUSE_SERVER_ADDR="${CLICKHOUSE_SERVER_ADDR:-127.0.0.1}"
-CLICKHOUSE_SERVER_PORT="${CLICKHOUSE_SERVER_PORT:-9000}"           # native port by default
+CLICKHOUSE_SERVER_PORT="${CLICKHOUSE_SERVER_PORT:-8123}"           # HTTP port for Altinity
 
 CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-127.0.0.1}"
-CLICKHOUSE_TCP_PORT="${CLICKHOUSE_TCP_PORT:-9000}"   # native protocol
+CLICKHOUSE_TCP_PORT="${CLICKHOUSE_TCP_PORT:-9000}"   # native protocol (still useful for docs)
 CLICKHOUSE_PROTOCOL="${CLICKHOUSE_PROTOCOL:-native}" # or "http"
 CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
 CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-}"
@@ -37,9 +38,8 @@ MONGO_CONN_STRING="${MONGO_CONN_STRING:-mongodb://127.0.0.1:27017/${MONGO_DB}}"
 MONGO_USER="${MONGO_USER:-}"
 MONGO_PASSWORD="${MONGO_PASSWORD:-}"
 
-# Optional: custom ClickHouse dashboard JSON in S3
-CLICKHOUSE_BUCKET="${CLICKHOUSE_BUCKET:-}"
-GRAFANA_DASHBOARD_KEY="${GRAFANA_DASHBOARD_KEY:-}"
+: "${CLICKHOUSE_BUCKET:?CLICKHOUSE_BUCKET is required}"
+: "${CLICKHOUSE_PREFIX:?CLICKHOUSE_PREFIX is required}"
 
 # Default dashboard IDs (override by editing this array)
 DASH_IDS=(
@@ -156,34 +156,32 @@ DS_UID="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
 echo "[grafana] Prometheus datasource id=${DS_ID} uid=${DS_UID}"
 
 # ===========
-# Create ClickHouse and Mongo datasources
+# Create ClickHouse and Mongo datasources (initial create)
 # ===========
 create_clickhouse() {
-  echo "[grafana] creating ClickHouse datasource"
+  echo "[grafana] creating ClickHouse datasource (Altinity) with uid=clickhouse-main"
 
   local payload
   payload="$(mktemp)"
 
   jq -n \
     --arg name     "$CLICKHOUSE_DS_NAME" \
-    --arg server   "$CLICKHOUSE_HOST" \
+    --arg url      "$CLICKHOUSE_URL" \
     --arg db       "$CLICKHOUSE_DB" \
     --arg user     "$CLICKHOUSE_USER" \
-    --arg protocol "$CLICKHOUSE_PROTOCOL" \
-    --arg port     "$CLICKHOUSE_TCP_PORT" \
-    --arg ptype    "$CLICKHOUSE_PLUGIN_TYPE" \
     --arg pass     "$CLICKHOUSE_PASSWORD" \
+    --arg ptype    "$CLICKHOUSE_PLUGIN_TYPE" \
   '{
     name: $name,
+    uid: "clickhouse-main",
     type: $ptype,
     access: "proxy",
-    url: "",
+    url: $url,
+    isDefault: false,
     jsonData: {
-      server: $server,
-      port: ($port | tonumber),
-      protocol: $protocol,          # "native" or "http"
+      defaultDatabase: $db,
       username: $user,
-      defaultDatabase: $db
+      tlsSkipVerify: true
     },
     secureJsonData: {
       password: $pass
@@ -293,26 +291,20 @@ if [[ "$SKIP_CH" -eq 0 ]]; then
     jq -n \
       --arg name   "$CLICKHOUSE_DS_NAME" \
       --arg url    "$CLICKHOUSE_URL" \
-      --arg server "$CLICKHOUSE_SERVER_ADDR" \
-      --argjson port "${CLICKHOUSE_SERVER_PORT}" \
       --arg db     "$CLICKHOUSE_DB" \
       --arg ptype  "$CLICKHOUSE_PLUGIN_TYPE" \
-      '{
-        name: $name,
-        type: $ptype,
-        access: "proxy",
-        url: $url,
-        isDefault: false,
-        jsonData: {
-          server: $server,
-          port: $port,
-          protocol: "native",
-          username: "default",
-          tlsAuth: false,
-          tlsSkipVerify: true,
-          defaultDatabase: $db
-        }
-      }' > "$ch_ds_payload"
+    '{
+      name: $name,
+      uid: "clickhouse-main",
+      type: $ptype,
+      access: "proxy",
+      url: $url,
+      isDefault: false,
+      jsonData: {
+        defaultDatabase: $db,
+        tlsSkipVerify: true
+      }
+    }' > "$ch_ds_payload"
 
     CH_DS_JSON="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
       -H "Content-Type: application/json" -X POST \
@@ -439,110 +431,61 @@ for id in "${DASH_IDS[@]}"; do
 done
 
 # ===========
-# Import custom ClickHouse dashboard from S3 (if plugin exists)
+# Import custom ClickHouse dashboards from S3 (if plugin exists)
 # ===========
 if [[ "$SKIP_CH" -eq 0 ]]; then
-  echo "[grafana] importing custom ClickHouse Sales Orders dashboard"
+  echo "[grafana] importing custom ClickHouse dashboards from s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards"
 
-  if [[ -z "$CLICKHOUSE_BUCKET" || -z "$GRAFANA_DASHBOARD_KEY" ]]; then
-    echo "[grafana] WARNING: CLICKHOUSE_BUCKET or GRAFANA_DASHBOARD_KEY not set; skipping custom ClickHouse dashboard import."
+  if [[ -z "$CLICKHOUSE_BUCKET" ]]; then
+    echo "[grafana] WARNING: CLICKHOUSE_BUCKET not set; skipping custom ClickHouse dashboard import."
   else
-    TMP_DASH="$(mktemp)"
-    WRAP_DASH="$(mktemp)"
-    RESP_DASH="$(mktemp)"
+    # List all .json objects under the prefix
+    mapfile -t DASH_KEYS < <(aws s3 ls "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/" \
+      | awk '/\.json$/ {print $4}')
 
-    echo "[grafana] fetching s3://${CLICKHOUSE_BUCKET}/${GRAFANA_DASHBOARD_KEY}"
-    if aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${GRAFANA_DASHBOARD_KEY}" "$TMP_DASH"; then
-      if [[ ! -s "$TMP_DASH" ]]; then
-        echo "[grafana] WARNING: downloaded dashboard file is empty; skipping import."
-      else
-        # Wrap raw dashboard JSON into import payload
-        jq -n --slurpfile d "$TMP_DASH" '{
-          dashboard: $d[0],
-          overwrite: true,
-          folderId: 0
-        }' > "$WRAP_DASH"
-
-        CODE="$(curl -sS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-          -H "Content-Type: application/json" \
-          -X POST "${GRAFANA_URL}/api/dashboards/import" \
-          --data-binary @"$WRAP_DASH" \
-          -w '%{http_code}' -o "$RESP_DASH" || true)"
-
-        if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]]; then
-          echo "  ✓ Custom ClickHouse Sales Orders dashboard imported"
-        else
-          echo "  ! Custom ClickHouse dashboard import failed http=${CODE}"
-          sed -n '1,200p' "$RESP_DASH" >&2
-        fi
-      fi
+    if [[ "${#DASH_KEYS[@]}" -eq 0 ]]; then
+      echo "[grafana] no .json dashboards found under s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/"
     else
-      echo "[grafana] WARNING: failed to download dashboard JSON from S3."
+      for key in "${DASH_KEYS[@]}"; do
+        echo "[grafana] importing dashboard from s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/${key}"
+
+        TMP_DASH="$(mktemp)"
+        WRAP_DASH="$(mktemp)"
+        RESP_DASH="$(mktemp)"
+
+        if aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/${key}" "$TMP_DASH"; then
+          if [[ ! -s "$TMP_DASH" ]]; then
+            echo "[grafana] WARNING: downloaded dashboard file is empty; skipping import: ${key}"
+          else
+            jq -n --slurpfile d "$TMP_DASH" '{
+              dashboard: $d[0],
+              overwrite: true,
+              folderId: 0
+            }' > "$WRAP_DASH"
+
+            CODE="$(curl -sS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
+              -H "Content-Type: application/json" \
+              -X POST "${GRAFANA_URL}/api/dashboards/import" \
+              --data-binary @"$WRAP_DASH" \
+              -w '%{http_code}' -o "$RESP_DASH" || true)"
+
+            if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]]; then
+              echo "  ✓ imported ${key}"
+            else
+              echo "  ! import failed for ${key} http=${CODE}"
+              sed -n '1,200p' "$RESP_DASH" >&2
+            fi
+          fi
+        else
+          echo "[grafana] WARNING: failed to download dashboard JSON from S3: ${key}"
+        fi
+
+        rm -f "$TMP_DASH" "$WRAP_DASH" "$RESP_DASH"
+      done
     fi
-
-    rm -f "$TMP_DASH" "$WRAP_DASH" "$RESP_DASH"
   fi
 else
-  echo "[grafana] Skipping ClickHouse Sales Orders dashboard (no plugin)."
-fi
-
-# ===========
-# Create a simple MongoDB dashboard for sales.orders (if plugin exists)
-# ===========
-if [[ "$SKIP_MONGO" -eq 0 ]]; then
-  echo "[grafana] creating MongoDB Sales Orders dashboard"
-
-  MONGO_DASH_PAYLOAD="$(mktemp)"
-  jq -n \
-    --arg ds_uid  "$MONGO_DS_UID" \
-    --arg ds_type "$MONGO_PLUGIN_TYPE" \
-    --arg db      "$MONGO_DB" \
-    '{
-      dashboard: {
-        id: null,
-        uid: null,
-        title: "MongoDB – Sales Orders (raw data)",
-        timezone: "browser",
-        schemaVersion: 37,
-        version: 1,
-        panels: [
-          {
-            type: "table",
-            title: "Recent Sales Orders (MongoDB)",
-            datasource: { "type": $ds_type, "uid": $ds_uid },
-            fieldConfig: { defaults: {}, overrides: [] },
-            options: { showHeader: true },
-            targets: [
-              {
-                refId: "A",
-                query: "",
-                collection: "orders"
-              }
-            ],
-            gridPos: { x: 0, y: 0, w: 24, h: 10 }
-          }
-        ]
-      },
-      overwrite: true
-    }' > "$MONGO_DASH_PAYLOAD"
-
-  MONGO_RESP="$(mktemp)"
-  MONGO_CODE="$(curl -sS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-    -H "Content-Type: application/json" \
-    -X POST "${GRAFANA_URL}/api/dashboards/db" \
-    --data-binary @"$MONGO_DASH_PAYLOAD" \
-    -w '%{http_code}' -o "$MONGO_RESP" || true)"
-
-  if [[ "$MONGO_CODE" -ge 200 && "$MONGO_CODE" -lt 300 ]]; then
-    echo "  ✓ MongoDB Sales Orders dashboard created"
-  else
-    echo "  ! MongoDB dashboard create failed http=${MONGO_CODE}"
-    sed -n '1,200p' "$MONGO_RESP" >&2
-  fi
-
-  rm -f "$MONGO_DASH_PAYLOAD" "$MONGO_RESP"
-else
-  echo "[grafana] Skipping MongoDB Sales Orders dashboard (no plugin)."
+  echo "[grafana] Skipping ClickHouse dashboards (no plugin)."
 fi
 
 echo "[grafana] dashboard import complete."

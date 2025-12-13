@@ -71,21 +71,10 @@ echo "[bootstrap] Prometheus config written and service restarted."
 # -------------------------------------------------------
 # Download & run Kafka / ClickHouse wiring scripts
 # -------------------------------------------------------
-echo "[bootstrap] Downloading kconnect-mongo-bootstrap.sh..."
-aws s3 cp "${S3_SCRIPTS_BASE}/kconnect-mongo-bootstrap.sh" \
-  "${BIN_DIR}/kconnect-mongo-bootstrap.sh"
-chmod +x "${BIN_DIR}/kconnect-mongo-bootstrap.sh"
-
 echo "[bootstrap] Downloading kafka-clickhouse-bootstrap.sh..."
 aws s3 cp "${S3_SCRIPTS_BASE}/kafka-clickhouse-bootstrap.sh" \
   "${BIN_DIR}/kafka-clickhouse-bootstrap.sh"
 chmod +x "${BIN_DIR}/kafka-clickhouse-bootstrap.sh"
-
-echo "[bootstrap] Running kconnect-mongo-bootstrap.sh..."
-"${BIN_DIR}/kconnect-mongo-bootstrap.sh" > /var/log/kconnect_mongo_bootstrap.log 2>&1 || {
-  echo "[bootstrap] kconnect-mongo-bootstrap.sh failed — see /var/log/kconnect_mongo_bootstrap.log"
-  exit 1
-}
 
 echo "[bootstrap] Running kafka-clickhouse-bootstrap.sh..."
 "${BIN_DIR}/kafka-clickhouse-bootstrap.sh" > /var/log/kafka_clickhouse_bootstrap.log 2>&1 || {
@@ -107,4 +96,18 @@ echo "[bootstrap] Running Grafana bootstrap..."
   exit 1
 }
 
-echo "[bootstrap] Prometheus/Grafana wiring completed successfully."
+# -------------------------------------------------------
+# Kafka Connect → Mongo bootstrap (run LAST)
+# -------------------------------------------------------
+echo "[bootstrap] Downloading kconnect-mongo-bootstrap.sh..."
+aws s3 cp "${S3_SCRIPTS_BASE}/kconnect-mongo-bootstrap.sh" \
+  "${BIN_DIR}/kconnect-mongo-bootstrap.sh"
+chmod +x "${BIN_DIR}/kconnect-mongo-bootstrap.sh"
+
+echo "[bootstrap] Running kconnect-mongo-bootstrap.sh (final step)..."
+"${BIN_DIR}/kconnect-mongo-bootstrap.sh" > /var/log/kconnect_mongo_bootstrap.log 2>&1 || {
+  echo "[bootstrap] kconnect-mongo-bootstrap.sh failed — see /var/log/kconnect_mongo_bootstrap.log"
+  exit 1
+}
+
+echo "[bootstrap] All bootstrap steps completed successfully."
