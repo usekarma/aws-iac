@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# grafana-bootstrap.sh — auto-install ClickHouse & MongoDB plugins if missing
+# grafana-bootstrap.sh — install plugins, ensure datasources, import dashboards (RESET + deterministic)
 
 set -euo pipefail
 
@@ -13,27 +13,18 @@ GRAFANA_PASS="${GRAFANA_PASS:-admin}"
 PROM_URL="${PROM_URL:-http://127.0.0.1:9090}"
 PROM_DS_NAME="${PROM_DS_NAME:-Prometheus}"
 
-# ClickHouse config
-CLICKHOUSE_URL="${CLICKHOUSE_URL:-http://127.0.0.1:8123}"          # HTTP endpoint (for Altinity plugin)
+# ClickHouse config (VERTAMEDIA)
+CLICKHOUSE_URL="${CLICKHOUSE_URL:-http://127.0.0.1:8123}"
 CLICKHOUSE_DS_NAME="${CLICKHOUSE_DS_NAME:-ClickHouse}"
 CLICKHOUSE_DB="${CLICKHOUSE_DB:-sales}"
-# Altinity plugin id:
-CLICKHOUSE_PLUGIN_TYPE="${CLICKHOUSE_PLUGIN_TYPE:-vertamedia-clickhouse-datasource}"
-CLICKHOUSE_SERVER_ADDR="${CLICKHOUSE_SERVER_ADDR:-127.0.0.1}"
-CLICKHOUSE_SERVER_PORT="${CLICKHOUSE_SERVER_PORT:-8123}"           # HTTP port for Altinity
-
-CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-127.0.0.1}"
-CLICKHOUSE_TCP_PORT="${CLICKHOUSE_TCP_PORT:-9000}"   # native protocol (still useful for docs)
-CLICKHOUSE_PROTOCOL="${CLICKHOUSE_PROTOCOL:-native}" # or "http"
+CLICKHOUSE_PLUGIN_TYPE="vertamedia-clickhouse-datasource"
 CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
 CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-}"
 
 # Mongo config
 MONGO_DS_NAME="${MONGO_DS_NAME:-MongoDB}"
 MONGO_DB="${MONGO_DB:-sales}"
-MONGO_URL="${MONGO_URL:-mongodb://127.0.0.1:27017/sales}"          # full connection string incl. DB
 MONGO_PLUGIN_TYPE="${MONGO_PLUGIN_TYPE:-grafana-mongodb-datasource}"
-
 MONGO_CONN_STRING="${MONGO_CONN_STRING:-mongodb://127.0.0.1:27017/${MONGO_DB}}"
 MONGO_USER="${MONGO_USER:-}"
 MONGO_PASSWORD="${MONGO_PASSWORD:-}"
@@ -81,6 +72,7 @@ DASH_IDS=(
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing: $1" >&2; exit 1; }; }
 need curl
 need jq
+need aws
 
 # ===========
 # Install plugins if missing
@@ -123,7 +115,6 @@ for i in {1..90}; do
     break
   fi
   sleep 2
-  [[ $i -eq 90 ]] && echo "[grafana] never became ready; proceeding anyway"
 done
 
 # ===========
@@ -139,9 +130,9 @@ if [[ -n "$DS_JSON" ]] && echo "$DS_JSON" | jq -e .id >/dev/null 2>&1; then
 else
   ds_payload="$(mktemp)"
   jq -n --arg name "$PROM_DS_NAME" --arg url "$PROM_URL" '{
-      name: $name, type: "prometheus", access: "proxy", url: $url, isDefault: true,
-      jsonData: { httpMethod: "POST" }
-    }' > "$ds_payload"
+    name: $name, type: "prometheus", access: "proxy", url: $url, isDefault: true,
+    jsonData: { httpMethod: "POST" }
+  }' > "$ds_payload"
 
   DS_JSON="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
     -H "Content-Type: application/json" -X POST \
@@ -153,56 +144,91 @@ fi
 
 DS_UID="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
   "${GRAFANA_URL}/api/datasources/${DS_ID}" | jq -r .uid)"
-echo "[grafana] Prometheus datasource id=${DS_ID} uid=${DS_UID}"
+echo "[grafana] Prometheus datasource id=${DS_ID} uid=${DS_UID} name=${PROM_DS_NAME}"
 
 # ===========
-# Create ClickHouse and Mongo datasources (initial create)
+# RESET: ensure clickhouse-main is VERTAMEDIA (delete if wrong type)
 # ===========
-create_clickhouse() {
-  echo "[grafana] creating ClickHouse datasource (Altinity) with uid=clickhouse-main"
+echo "[grafana] reset check: clickhouse-main must be type=${CLICKHOUSE_PLUGIN_TYPE}"
+CH_EXIST="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
+  "${GRAFANA_URL}/api/datasources/uid/clickhouse-main" || true)"
 
-  local payload
-  payload="$(mktemp)"
+if [[ -n "$CH_EXIST" ]] && echo "$CH_EXIST" | jq -e .id >/dev/null 2>&1; then
+  CH_EXIST_ID="$(echo "$CH_EXIST" | jq -r .id)"
+  CH_EXIST_TYPE="$(echo "$CH_EXIST" | jq -r .type)"
+  if [[ "$CH_EXIST_TYPE" != "$CLICKHOUSE_PLUGIN_TYPE" ]]; then
+    echo "[grafana] deleting existing clickhouse-main (id=${CH_EXIST_ID}, type=${CH_EXIST_TYPE})"
+    curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
+      -X DELETE "${GRAFANA_URL}/api/datasources/${CH_EXIST_ID}" >/dev/null || true
+  fi
+fi
 
-  jq -n \
-    --arg name     "$CLICKHOUSE_DS_NAME" \
-    --arg url      "$CLICKHOUSE_URL" \
-    --arg db       "$CLICKHOUSE_DB" \
-    --arg user     "$CLICKHOUSE_USER" \
-    --arg pass     "$CLICKHOUSE_PASSWORD" \
-    --arg ptype    "$CLICKHOUSE_PLUGIN_TYPE" \
-  '{
-    name: $name,
-    uid: "clickhouse-main",
-    type: $ptype,
-    access: "proxy",
-    url: $url,
-    isDefault: false,
-    jsonData: {
-      defaultDatabase: $db,
-      username: $user,
-      tlsSkipVerify: true
-    },
-    secureJsonData: {
-      password: $pass
-    }
-  }' > "$payload"
+# ===========
+# Ensure ClickHouse datasource (vertamedia) with stable uid=clickhouse-main
+#   NOTE: for vertamedia, url is enough; plugin stores host/port separately too.
+# ===========
+echo "[grafana] ensuring ClickHouse datasource uid=clickhouse-main (type=${CLICKHOUSE_PLUGIN_TYPE})"
 
+CH_EXIST="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
+  "${GRAFANA_URL}/api/datasources/uid/clickhouse-main" || true)"
+
+ch_payload="$(mktemp)"
+jq -n \
+  --arg name "$CLICKHOUSE_DS_NAME" \
+  --arg url  "$CLICKHOUSE_URL" \
+  --arg db   "$CLICKHOUSE_DB" \
+  --arg user "$CLICKHOUSE_USER" \
+  --arg pass "$CLICKHOUSE_PASSWORD" \
+  --arg ptype "$CLICKHOUSE_PLUGIN_TYPE" \
+'{
+  name: $name,
+  uid: "clickhouse-main",
+  type: $ptype,
+  access: "proxy",
+  url: $url,
+  isDefault: false,
+  jsonData: {
+    defaultDatabase: $db,
+    username: $user,
+    tlsSkipVerify: true
+  },
+  secureJsonData: {
+    password: $pass
+  }
+}' > "$ch_payload"
+
+if [[ -n "$CH_EXIST" ]] && echo "$CH_EXIST" | jq -e .id >/dev/null 2>&1; then
+  CH_ID="$(echo "$CH_EXIST" | jq -r .id)"
   curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
     -H "Content-Type: application/json" \
-    -X POST \
-    --data-binary @"$payload" \
-    "${GRAFANA_URL}/api/datasources" >/dev/null || true
+    -X PUT "${GRAFANA_URL}/api/datasources/${CH_ID}" \
+    --data-binary @"$ch_payload" >/dev/null || true
+else
+  curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
+    -H "Content-Type: application/json" \
+    -X POST "${GRAFANA_URL}/api/datasources" \
+    --data-binary @"$ch_payload" >/dev/null || true
+fi
+rm -f "$ch_payload"
 
-  rm -f "$payload"
-}
+CH_DS="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
+  "${GRAFANA_URL}/api/datasources/uid/clickhouse-main")"
+CH_UID="$(echo "$CH_DS" | jq -r .uid)"
+CH_TYPE="$(echo "$CH_DS" | jq -r .type)"
+echo "[grafana] ClickHouse datasource uid=${CH_UID} type=${CH_TYPE} name=${CLICKHOUSE_DS_NAME}"
 
-create_mongo() {
-  echo "[grafana] creating MongoDB datasource"
+# ===========
+# Ensure MongoDB datasource
+# ===========
+echo "[grafana] ensuring MongoDB datasource '${MONGO_DS_NAME}'"
 
-  local payload
-  payload="$(mktemp)"
+MONGO_DS_JSON="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
+  "${GRAFANA_URL}/api/datasources/name/${MONGO_DS_NAME}" || true)"
 
+if [[ -n "$MONGO_DS_JSON" ]] && echo "$MONGO_DS_JSON" | jq -e .id >/dev/null 2>&1; then
+  MONGO_DS_ID="$(echo "$MONGO_DS_JSON" | jq -r .id)"
+else
+  mongo_ds_payload="$(mktemp)"
   jq -n \
     --arg name  "$MONGO_DS_NAME" \
     --arg uri   "$MONGO_CONN_STRING" \
@@ -215,6 +241,7 @@ create_mongo() {
     type: $ptype,
     access: "proxy",
     url: "",
+    isDefault: false,
     jsonData: {
       defaultDatabase: $db,
       username: $user
@@ -223,153 +250,41 @@ create_mongo() {
       uri: $uri,
       password: $pass
     }
-  }' > "$payload"
+  }' > "$mongo_ds_payload"
 
-  curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-    -H "Content-Type: application/json" \
-    -X POST \
-    --data-binary @"$payload" \
-    "${GRAFANA_URL}/api/datasources" >/dev/null || true
-
-  rm -f "$payload"
-}
-
-create_clickhouse
-create_mongo
-
-echo "[grafana] plugins and datasources (initial) created."
-
-# ===========
-# Check for ClickHouse plugin
-# ===========
-SKIP_CH=0
-echo "[grafana] checking for ClickHouse plugin '${CLICKHOUSE_PLUGIN_TYPE}'"
-
-PLUGINS_JSON="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-  "${GRAFANA_URL}/api/plugins" || true)"
-
-if [[ -z "$PLUGINS_JSON" ]] || ! echo "$PLUGINS_JSON" | jq -e --arg t "$CLICKHOUSE_PLUGIN_TYPE" \
-     'map(select(.id == $t and .enabled == true)) | length > 0' >/dev/null 2>&1; then
-  echo "[grafana] WARNING: ClickHouse plugin '${CLICKHOUSE_PLUGIN_TYPE}' not found or not enabled; skipping ClickHouse dashboard."
-  SKIP_CH=1
-else
-  echo "[grafana] ClickHouse plugin '${CLICKHOUSE_PLUGIN_TYPE}' is present and enabled."
+  MONGO_DS_JSON="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
+    -H "Content-Type: application/json" -X POST \
+    --data-binary @"$mongo_ds_payload" \
+    "${GRAFANA_URL}/api/datasources")"
+  rm -f "$mongo_ds_payload"
+  MONGO_DS_ID="$(echo "$MONGO_DS_JSON" | jq -r .id)"
 fi
 
-# ===========
-# Check for MongoDB plugin
-# ===========
-SKIP_MONGO=0
-echo "[grafana] checking for MongoDB plugin '${MONGO_PLUGIN_TYPE}'"
+MONGO_DS_UID="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
+  "${GRAFANA_URL}/api/datasources/${MONGO_DS_ID}" | jq -r .uid)"
+echo "[grafana] MongoDB datasource id=${MONGO_DS_ID} uid=${MONGO_DS_UID} name=${MONGO_DS_NAME}"
 
-if [[ -z "$PLUGINS_JSON" ]]; then
-  PLUGINS_JSON="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-    "${GRAFANA_URL}/api/plugins" || true)"
+# ===========
+# Plugin presence checks (fixes SKIP_CH undefined)
+# ===========
+SKIP_CH=0
+SKIP_MONGO=0
+PLUGINS_JSON="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" "${GRAFANA_URL}/api/plugins" || true)"
+
+if [[ -z "$PLUGINS_JSON" ]] || ! echo "$PLUGINS_JSON" | jq -e --arg t "$CLICKHOUSE_PLUGIN_TYPE" \
+  'map(select(.id == $t and .enabled == true)) | length > 0' >/dev/null 2>&1; then
+  echo "[grafana] WARNING: ClickHouse plugin '${CLICKHOUSE_PLUGIN_TYPE}' not found/enabled"
+  SKIP_CH=1
 fi
 
 if [[ -z "$PLUGINS_JSON" ]] || ! echo "$PLUGINS_JSON" | jq -e --arg t "$MONGO_PLUGIN_TYPE" \
-     'map(select(.id == $t and .enabled == true)) | length > 0' >/dev/null 2>&1; then
-  echo "[grafana] WARNING: MongoDB plugin '${MONGO_PLUGIN_TYPE}' not found or not enabled; skipping MongoDB dashboard."
+  'map(select(.id == $t and .enabled == true)) | length > 0' >/dev/null 2>&1; then
+  echo "[grafana] WARNING: Mongo plugin '${MONGO_PLUGIN_TYPE}' not found/enabled"
   SKIP_MONGO=1
-else
-  echo "[grafana] MongoDB plugin '${MONGO_PLUGIN_TYPE}' is present and enabled."
 fi
 
 # ===========
-# Ensure ClickHouse datasource (if plugin exists)
-# ===========
-if [[ "$SKIP_CH" -eq 0 ]]; then
-  echo "[grafana] ensuring ClickHouse datasource '${CLICKHOUSE_DS_NAME}'"
-
-  CH_DS_JSON="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-    "${GRAFANA_URL}/api/datasources/name/${CLICKHOUSE_DS_NAME}" || true)"
-
-  if [[ -n "$CH_DS_JSON" ]] && echo "$CH_DS_JSON" | jq -e .id >/dev/null 2>&1; then
-    CH_DS_ID="$(echo "$CH_DS_JSON" | jq -r .id)"
-  else
-    ch_ds_payload="$(mktemp)"
-    jq -n \
-      --arg name   "$CLICKHOUSE_DS_NAME" \
-      --arg url    "$CLICKHOUSE_URL" \
-      --arg db     "$CLICKHOUSE_DB" \
-      --arg ptype  "$CLICKHOUSE_PLUGIN_TYPE" \
-    '{
-      name: $name,
-      uid: "clickhouse-main",
-      type: $ptype,
-      access: "proxy",
-      url: $url,
-      isDefault: false,
-      jsonData: {
-        defaultDatabase: $db,
-        tlsSkipVerify: true
-      }
-    }' > "$ch_ds_payload"
-
-    CH_DS_JSON="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-      -H "Content-Type: application/json" -X POST \
-      --data-binary @"$ch_ds_payload" \
-      "${GRAFANA_URL}/api/datasources")"
-    rm -f "$ch_ds_payload"
-    CH_DS_ID="$(echo "$CH_DS_JSON" | jq -r .id)"
-  fi
-
-  CH_DS_UID="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-    "${GRAFANA_URL}/api/datasources/${CH_DS_ID}" | jq -r .uid)"
-  echo "[grafana] ClickHouse datasource id=${CH_DS_ID} uid=${CH_DS_UID}"
-fi
-
-# ===========
-# Ensure MongoDB datasource (if plugin exists)
-# ===========
-if [[ "$SKIP_MONGO" -eq 0 ]]; then
-  echo "[grafana] ensuring MongoDB datasource '${MONGO_DS_NAME}'"
-
-  MONGO_DS_JSON="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-    "${GRAFANA_URL}/api/datasources/name/${MONGO_DS_NAME}" || true)"
-
-  if [[ -n "$MONGO_DS_JSON" ]] && echo "$MONGO_DS_JSON" | jq -e .id >/dev/null 2>&1; then
-    MONGO_DS_ID="$(echo "$MONGO_DS_JSON" | jq -r .id)"
-  else
-    mongo_ds_payload="$(mktemp)"
-    jq -n \
-      --arg name  "$MONGO_DS_NAME" \
-      --arg uri   "$MONGO_CONN_STRING" \
-      --arg db    "$MONGO_DB" \
-      --arg user  "$MONGO_USER" \
-      --arg pass  "$MONGO_PASSWORD" \
-      --arg ptype "$MONGO_PLUGIN_TYPE" \
-    '{
-      name: $name,
-      type: $ptype,
-      access: "proxy",
-      url: "",
-      isDefault: false,
-      jsonData: {
-        defaultDatabase: $db,
-        username: $user
-      },
-      secureJsonData: {
-        uri: $uri,
-        password: $pass
-      }
-    }' > "$mongo_ds_payload"
-
-    MONGO_DS_JSON="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-      -H "Content-Type: application/json" -X POST \
-      --data-binary @"$mongo_ds_payload" \
-      "${GRAFANA_URL}/api/datasources")"
-    rm -f "$mongo_ds_payload"
-    MONGO_DS_ID="$(echo "$MONGO_DS_JSON" | jq -r .id)"
-  fi
-
-  MONGO_DS_UID="$(curl -fsS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-    "${GRAFANA_URL}/api/datasources/${MONGO_DS_ID}" | jq -r .uid)"
-  echo "[grafana] MongoDB datasource id=${MONGO_DS_ID} uid=${MONGO_DS_UID}"
-fi
-
-# ===========
-# Import helper (portable: uses files + --slurpfile)
+# Import helper (FIXED input mapping: use datasource NAMES, not UIDs)
 # ===========
 import_dash () {
   local ID="$1"
@@ -377,26 +292,38 @@ import_dash () {
 
   local rev
   rev="$(curl -fsS "https://grafana.com/api/dashboards/${ID}/revisions" \
-          | jq -r '.items | max_by(.revision) | .revision')"
+    | jq -r '.items | max_by(.revision) | .revision')"
   [[ -n "$rev" && "$rev" != "null" ]] || { echo "  ! no revisions for ${ID}"; return 1; }
 
-  local dash tmp_wrap resp
+  local dash tmp_wrap resp code
   dash="$(mktemp)"
   curl -fsS "https://grafana.com/api/dashboards/${ID}/revisions/${rev}/download" > "$dash"
 
+  # Map inputs by pluginId → VALUES SHOULD BE DATASOURCE *NAME*
   local inputs
-  inputs="$(jq --arg dsUid "$DS_UID" '
-      (.__inputs // [])
-      | map(select((.pluginId=="prometheus") or (.type=="datasource")))
-      | unique_by(.name)
-      | map({name:.name, type:"datasource", pluginId:"prometheus", value:$dsUid})
-    ' "$dash")"
-  if [[ "$(echo "$inputs" | jq 'length')" -eq 0 ]]; then
-    inputs="$(jq -n --arg dsUid "$DS_UID" '[
-      {name:"DS_PROMETHEUS", type:"datasource", pluginId:"prometheus", value:$dsUid},
-      {name:"PROMETHEUS",    type:"datasource", pluginId:"prometheus", value:$dsUid}
-    ]')"
-  fi
+  inputs="$(jq \
+    --arg promName "$PROM_DS_NAME" \
+    --arg chName   "$CLICKHOUSE_DS_NAME" \
+    --arg chPlugin "$CLICKHOUSE_PLUGIN_TYPE" \
+    --arg mongoName "$MONGO_DS_NAME" \
+    --arg mongoPlugin "$MONGO_PLUGIN_TYPE" \
+  '
+    (.__inputs // [])
+    | map(select(.type=="datasource"))
+    | unique_by(.name)
+    | map({
+        name: .name,
+        type: "datasource",
+        pluginId: .pluginId,
+        value: (
+          if .pluginId=="prometheus" then $promName
+          elif .pluginId==$chPlugin then $chName
+          elif .pluginId==$mongoPlugin then $mongoName
+          else $promName
+          end
+        )
+      })
+  ' "$dash")"
 
   tmp_wrap="$(mktemp)"
   jq -n --slurpfile d "$dash" --argjson inputs "$inputs" '{
@@ -408,10 +335,10 @@ import_dash () {
 
   resp="$(mktemp)"
   code="$(curl -sS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-         -H "Content-Type: application/json" \
-         -X POST "${GRAFANA_URL}/api/dashboards/import" \
-         --data-binary @"$tmp_wrap" \
-         -w '%{http_code}' -o "$resp" || true)"
+    -H "Content-Type: application/json" \
+    -X POST "${GRAFANA_URL}/api/dashboards/import" \
+    --data-binary @"$tmp_wrap" \
+    -w '%{http_code}' -o "$resp" || true)"
 
   if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
     echo "  ✓ imported id=${ID} rev=${rev}"
@@ -424,65 +351,66 @@ import_dash () {
 }
 
 # ===========
-# Import all Prom-based dashboards
+# Import Grafana.com dashboards
 # ===========
 for id in "${DASH_IDS[@]}"; do
   import_dash "$id" || echo "  ! failed id=${id}"
 done
 
 # ===========
-# Import custom ClickHouse dashboards from S3 (if plugin exists)
+# Import custom ClickHouse dashboards from S3
 # ===========
 if [[ "$SKIP_CH" -eq 0 ]]; then
   echo "[grafana] importing custom ClickHouse dashboards from s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards"
 
-  if [[ -z "$CLICKHOUSE_BUCKET" ]]; then
-    echo "[grafana] WARNING: CLICKHOUSE_BUCKET not set; skipping custom ClickHouse dashboard import."
+  mapfile -t DASH_KEYS < <(aws s3 ls "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/" \
+    | awk '/\.json$/ {print $4}')
+
+  if [[ "${#DASH_KEYS[@]}" -eq 0 ]]; then
+    echo "[grafana] no .json dashboards found under s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/"
   else
-    # List all .json objects under the prefix
-    mapfile -t DASH_KEYS < <(aws s3 ls "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/" \
-      | awk '/\.json$/ {print $4}')
+    for key in "${DASH_KEYS[@]}"; do
+      echo "[grafana] importing dashboard from s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/${key}"
 
-    if [[ "${#DASH_KEYS[@]}" -eq 0 ]]; then
-      echo "[grafana] no .json dashboards found under s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/"
-    else
-      for key in "${DASH_KEYS[@]}"; do
-        echo "[grafana] importing dashboard from s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/${key}"
+      TMP_DASH="$(mktemp)"
+      WRAP_DASH="$(mktemp)"
+      RESP_DASH="$(mktemp)"
 
-        TMP_DASH="$(mktemp)"
-        WRAP_DASH="$(mktemp)"
-        RESP_DASH="$(mktemp)"
-
-        if aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/${key}" "$TMP_DASH"; then
-          if [[ ! -s "$TMP_DASH" ]]; then
-            echo "[grafana] WARNING: downloaded dashboard file is empty; skipping import: ${key}"
-          else
-            jq -n --slurpfile d "$TMP_DASH" '{
-              dashboard: $d[0],
-              overwrite: true,
-              folderId: 0
-            }' > "$WRAP_DASH"
-
-            CODE="$(curl -sS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-              -H "Content-Type: application/json" \
-              -X POST "${GRAFANA_URL}/api/dashboards/import" \
-              --data-binary @"$WRAP_DASH" \
-              -w '%{http_code}' -o "$RESP_DASH" || true)"
-
-            if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]]; then
-              echo "  ✓ imported ${key}"
-            else
-              echo "  ! import failed for ${key} http=${CODE}"
-              sed -n '1,200p' "$RESP_DASH" >&2
-            fi
-          fi
+      if aws s3 cp "s3://${CLICKHOUSE_BUCKET}/${CLICKHOUSE_PREFIX}/dashboards/${key}" "$TMP_DASH"; then
+        if [[ ! -s "$TMP_DASH" ]]; then
+          echo "[grafana] WARNING: downloaded dashboard file is empty; skipping import: ${key}"
         else
-          echo "[grafana] WARNING: failed to download dashboard JSON from S3: ${key}"
-        fi
+          # Ensure any datasource objects use clickhouse-main uid (for custom dashboards)
+          jq --arg uid "clickhouse-main" '
+            (.. | objects | select(has("datasource")) | .datasource) |=
+              (if type=="object" and has("uid") then .uid=$uid else . end)
+          ' "$TMP_DASH" > "${TMP_DASH}.fixed" && mv "${TMP_DASH}.fixed" "$TMP_DASH"
 
-        rm -f "$TMP_DASH" "$WRAP_DASH" "$RESP_DASH"
-      done
-    fi
+          jq -n --slurpfile d "$TMP_DASH" '{
+            dashboard: $d[0],
+            overwrite: true,
+            folderId: 0
+          }' > "$WRAP_DASH"
+
+          CODE="$(curl -sS -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
+            -H "Content-Type: application/json" \
+            -X POST "${GRAFANA_URL}/api/dashboards/import" \
+            --data-binary @"$WRAP_DASH" \
+            -w '%{http_code}' -o "$RESP_DASH" || true)"
+
+          if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]]; then
+            echo "  ✓ imported ${key}"
+          else
+            echo "  ! import failed for ${key} http=${CODE}"
+            sed -n '1,200p' "$RESP_DASH" >&2
+          fi
+        fi
+      else
+        echo "[grafana] WARNING: failed to download dashboard JSON from S3: ${key}"
+      fi
+
+      rm -f "$TMP_DASH" "$WRAP_DASH" "$RESP_DASH"
+    done
   fi
 else
   echo "[grafana] Skipping ClickHouse dashboards (no plugin)."
