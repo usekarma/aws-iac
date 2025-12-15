@@ -51,7 +51,15 @@ locals {
   mongo_port          = try(local.config.mongo_port, 27017)
   mongo_rs_name       = try(local.config.mongo_rs_name, "rs0")
   mongo_exporter_port = try(local.config.mongo_exporter_port, 9216)
-  mongo_nodeexp_port  = try(local.config.mongo_node_port, 9100)
+  mongo_nodeexp_port  = try(local.config.mongo_nodeexp_port, 9100)
+
+  #
+  # mongo-gen (git install)
+  #
+  mongo_gen_repo_url    = try(local.config.mongo_gen_repo_url, "github.com/usekarma/mongo-gen.git")
+  mongo_gen_branch      = try(local.config.mongo_gen_branch, "main")
+  # IMPORTANT: this is an *SSM parameter name* (SecureString), not the token itself
+  mongo_gen_token_param = try(local.config.mongo_gen_token_param, "")
 
   #
   # Dynamic connection string (only once IP exists)
@@ -72,8 +80,8 @@ locals {
   # - Optional kconnect SG
   mongo_base_sg_map = merge(
     {
-      clickhouse   = aws_security_group.clickhouse.id
-      vpc_default  = local.vpc_sg_id
+      clickhouse  = aws_security_group.clickhouse.id
+      vpc_default = local.vpc_sg_id
     },
     local.enable_kconnect ? { kconnect = aws_security_group.kconnect[0].id } : {}
   )
@@ -194,7 +202,7 @@ resource "aws_instance" "mongo" {
   root_block_device {
     encrypted   = true
     volume_type = "gp3"
-    volume_size = local.mongo_root_gb   # from SSM metadata
+    volume_size = local.mongo_root_gb # from SSM metadata
   }
 
   metadata_options {
@@ -202,21 +210,34 @@ resource "aws_instance" "mongo" {
     http_endpoint = "enabled"
   }
 
-  user_data_base64 = base64encode(templatefile("${path.module}/tmpl/mongo-userdata.sh.tmpl", {
-    EBS_DEVICE  = ""
-    MOUNT_POINT = "/var/lib/mongo"
-    MARKER_FILE = "/var/local/BOOTSTRAP_OK"
+  user_data_base64 = base64encode(
+    templatefile("${path.module}/tmpl/mongo-userdata.sh.tmpl", {
 
-    CLICKHOUSE_BUCKET = local.backup_bucket_name
-    CLICKHOUSE_PREFIX = local.backup_prefix
-    AWS_REGION        = data.aws_region.current.id
+      # ---------------- Disk / bootstrap ----------------
+      EBS_DEVICE  = ""
+      MOUNT_POINT = "/var/lib/mongo"
+      MARKER_FILE = "/var/local/BOOTSTRAP_OK"
 
-    MONGO_PORT               = local.mongo_port
-    MONGO_MAJOR              = local.mongo_major
-    RS_NAME                  = local.mongo_rs_name
-    MONGODB_EXPORTER_VERSION = local.mongo_exporter_ver
-    NODE_EXPORTER_VERSION    = local.mongo_nodeexp_ver
-  }))
+      # ---------------- S3 / AWS ----------------
+      CLICKHOUSE_BUCKET = local.backup_bucket_name
+      CLICKHOUSE_PREFIX = local.backup_prefix
+      AWS_REGION        = data.aws_region.current.id
+
+      # ---------------- Mongo ----------------
+      MONGO_PORT  = local.mongo_port
+      MONGO_MAJOR = local.mongo_major
+      RS_NAME     = local.mongo_rs_name
+
+      # ---------------- Exporters ----------------
+      MONGODB_EXPORTER_VERSION = local.mongo_exporter_ver
+      NODE_EXPORTER_VERSION    = local.mongo_nodeexp_ver
+
+      # ---------------- mongo-gen (git install) ----------------
+      MONGO_GEN_REPO_URL    = local.mongo_gen_repo_url
+      MONGO_GEN_BRANCH      = local.mongo_gen_branch
+      MONGO_GEN_TOKEN_PARAM = local.mongo_gen_token_param
+    })
+  )
 
   tags = merge(local.tags, {
     Name     = "${var.nickname}-mongo"
@@ -265,5 +286,13 @@ resource "aws_s3_object" "seed_reports_data" {
   key    = "${local.backup_prefix}/schema_mongo/seed-reports-data.js"
   source = "${path.module}/schema_mongo/seed-reports-data.js"
   etag   = filemd5("${path.module}/schema_mongo/seed-reports-data.js")
+  tags   = local.tags
+}
+
+resource "aws_s3_object" "mongo_bootstrap" {
+  bucket = local.backup_bucket_name
+  key    = "${local.backup_prefix}/scripts/mongo-bootstrap.sh"
+  source = "${path.module}/scripts/mongo-bootstrap.sh"
+  etag   = filemd5("${path.module}/scripts/mongo-bootstrap.sh")
   tags   = local.tags
 }
