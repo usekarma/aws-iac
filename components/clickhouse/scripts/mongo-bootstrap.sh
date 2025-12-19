@@ -323,14 +323,14 @@ if [[ -n "${MONGO_GEN_REPO_URL:-}" ]]; then
   pip install -e "${MONGO_GEN_DIR}"
   deactivate || true
 
-  cat >/usr/local/bin/run-mongo-gen.sh <<'RUNMG'
+  cat >/usr/local/bin/mongo-gen <<'RUNMG'
 #!/usr/bin/env bash
 set -euo pipefail
 cd /opt/mongo-gen
 source .venv/bin/activate
 exec mongo-gen "$@"
 RUNMG
-  chmod +x /usr/local/bin/run-mongo-gen.sh
+  chmod +x /usr/local/bin/mongo-gen
 
   echo "[mongo-bootstrap] mongo-gen installed at ${MONGO_GEN_DIR}"
 else

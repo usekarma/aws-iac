@@ -13,15 +13,21 @@ SELECT
 
     requested_at,
     started_at,
-    completed_at,
+    finished_at,
 
-    -- Durations
-    dateDiff('second', requested_at, started_at)    AS queue_secs,
-    dateDiff('second', started_at,   completed_at)  AS run_secs,
-    dateDiff('second', requested_at, completed_at)  AS total_secs
+    -- Durations (seconds)
+    dateDiff('second', requested_at, started_at)   AS queue_secs,
+    dateDiff('second', started_at,   finished_at)  AS run_secs,
+    dateDiff('second', requested_at, finished_at)  AS total_secs,
+
+    -- Durations (milliseconds)
+    dateDiff('millisecond', requested_at, started_at)  AS queue_ms,
+    dateDiff('millisecond', started_at,   finished_at) AS run_ms,
+    dateDiff('millisecond', requested_at, finished_at) AS total_ms
 
 FROM reports.report_runs_v
-WHERE requested_at IS NOT NULL;
+WHERE requested_at IS NOT NULL
+  AND finished_at IS NOT NULL;
 
 
 -- Rolling 5-minute SLA window
@@ -52,6 +58,7 @@ SELECT
     subscriber_id,
     report_type,
     total_secs,
+    total_ms,
 
     multiIf(
         total_secs <= 10, 'Tier 1 (Excellent)',
@@ -61,5 +68,5 @@ SELECT
     ) AS sla_tier,
 
     requested_at,
-    completed_at
+    finished_at
 FROM sla.report_runs_v;
