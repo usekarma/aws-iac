@@ -14,334 +14,884 @@
   },
   "editable": true,
   "fiscalYearStartMonth": 0,
-  "gnetId": null,
   "graphTooltip": 0,
-  "id": null,
+  "id": 0,
   "links": [],
-  "liveNow": false,
   "panels": [
     {
+      "datasource": "clickhouse-main",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
-      "type": "stat",
-      "title": "Runs (Last 24h)",
-      "datasource": {
-        "type": "vertamedia-clickhouse-datasource",
-        "uid": "clickhouse-main"
-      },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "horizontal",
-        "reduceOptions": { "calcs": ["last"], "fields": "", "values": false }
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "fieldConfig": {
-        "defaults": { "decimals": 0, "unit": "none" },
-        "overrides": []
-      },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
+          "adHocFilters": [],
+          "adHocValuesQuery": "",
+          "add_metadata": true,
+          "contextWindowSize": "10",
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "code",
+          "extrapolate": true,
+          "format": "table",
+          "formattedQuery": "SELECT\n  countDistinct(run_id) AS runs\nFROM reports.report_runs_v\nWHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                      AND toDateTime(intDiv(${__to}, 1000), 'UTC')",
+          "interval": "",
+          "intervalFactor": 1,
+          "nullifySparse": false,
+          "query": "SELECT\n  countDistinct(run_id) AS runs\nFROM reports.report_runs_v\nWHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                      AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n",
+          "rawQuery": "SELECT\n  countDistinct(run_id) AS runs\nFROM reports.report_runs_v\nWHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                      AND toDateTime(intDiv(${__to}, 1000), 'UTC')",
           "refId": "A",
-          "rawSql": "SELECT count() AS runs_last_24h\nFROM sla.report_runs_v\nWHERE requested_at > now() - INTERVAL 24 HOUR;"
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false,
+          "useWindowFuncForMacros": true
         }
-      ]
+      ],
+      "title": "Runs (total)",
+      "type": "stat"
     },
     {
+      "datasource": "clickhouse-main",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "id": 2,
-      "type": "stat",
-      "title": "Failure Rate (Last 24h)",
-      "datasource": {
-        "type": "vertamedia-clickhouse-datasource",
-        "uid": "clickhouse-main"
-      },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "horizontal",
-        "reduceOptions": { "calcs": ["last"], "fields": "", "values": false }
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "adHocFilters": [],
+          "adHocValuesQuery": "",
+          "add_metadata": true,
+          "contextWindowSize": "10",
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "code",
+          "extrapolate": true,
+          "format": "table",
+          "formattedQuery": "SELECT\n  countDistinctIf(run_id, completed_at IS NOT NULL) AS completed_runs\nFROM reports.report_runs_v\nWHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                      AND toDateTime(intDiv(${__to}, 1000), 'UTC')",
+          "interval": "",
+          "intervalFactor": 1,
+          "nullifySparse": false,
+          "query": "SELECT\n  countDistinctIf(run_id, completed_at IS NOT NULL) AS completed_runs\nFROM reports.report_runs_v\nWHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                      AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n",
+          "rawQuery": "SELECT\n  countDistinctIf(run_id, completed_at IS NOT NULL) AS completed_runs\nFROM reports.report_runs_v\nWHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                      AND toDateTime(intDiv(${__to}, 1000), 'UTC')",
+          "refId": "A",
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false,
+          "useWindowFuncForMacros": true
+        }
+      ],
+      "title": "Completed Runs",
+      "type": "stat"
+    },
+    {
+      "datasource": "clickhouse-main",
       "fieldConfig": {
         "defaults": {
-          "decimals": 1,
-          "unit": "percentunit",
+          "decimals": 2,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 0.02 },
-              { "color": "red", "value": 0.05 }
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
             ]
-          }
+          },
+          "unit": "percent"
         },
         "overrides": []
       },
-      "targets": [
-        {
-          "refId": "A",
-          "rawSql": "SELECT countIf(status = 'failed') / count() AS failure_rate\nFROM sla.report_runs_v\nWHERE requested_at > now() - INTERVAL 24 HOUR;"
-        }
-      ]
-    },
-    {
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
       "id": 3,
-      "type": "stat",
-      "title": "Avg Total Latency (sec, Last 24h)",
-      "datasource": {
-        "type": "vertamedia-clickhouse-datasource",
-        "uid": "clickhouse-main"
-      },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "horizontal",
-        "reduceOptions": { "calcs": ["last"], "fields": "", "values": false }
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "code",
+          "extrapolate": true,
+          "format": "table",
+          "formattedQuery": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  100.0 * countIf(final_status = 'FAILED')\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS failure_pct\nFROM final",
+          "intervalFactor": 1,
+          "query": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  100.0 * countIf(final_status = 'FAILED')\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS failure_pct\nFROM final\n",
+          "rawQuery": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  100.0 * countIf(final_status = 'FAILED')\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS failure_pct\nFROM final",
+          "refId": "A",
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false
+        }
+      ],
+      "title": "Failure Rate (%)",
+      "type": "stat"
+    },
+    {
+      "datasource": "clickhouse-main",
       "fieldConfig": {
         "defaults": {
-          "decimals": 1,
-          "unit": "s",
+          "decimals": 2,
+          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 10 },
-              { "color": "red", "value": 30 }
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
             ]
-          }
+          },
+          "unit": "s"
         },
         "overrides": []
       },
-      "targets": [
-        {
-          "refId": "A",
-          "rawSql": "SELECT avg(total_secs) AS avg_total_secs\nFROM sla.report_runs_v\nWHERE requested_at > now() - INTERVAL 24 HOUR;"
-        }
-      ]
-    },
-    {
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
       "id": 4,
-      "type": "stat",
-      "title": "SLA Breaches >10s (Last 24h)",
-      "datasource": {
-        "type": "vertamedia-clickhouse-datasource",
-        "uid": "clickhouse-main"
-      },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "horizontal",
-        "reduceOptions": { "calcs": ["last"], "fields": "", "values": false }
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "code",
+          "extrapolate": true,
+          "format": "table",
+          "formattedQuery": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(latency_ms, event_time) AS latency_ms,\n    argMax(status, event_time) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  quantile(0.95)(latency_ms) / 1000.0 AS p95_latency_s\nFROM final\nWHERE final_status IN ('SUCCESS','FAILED') AND latency_ms IS NOT NULL",
+          "intervalFactor": 1,
+          "query": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(latency_ms, event_time) AS latency_ms,\n    argMax(status, event_time) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  quantile(0.95)(latency_ms) / 1000.0 AS p95_latency_s\nFROM final\nWHERE final_status IN ('SUCCESS','FAILED') AND latency_ms IS NOT NULL\n",
+          "rawQuery": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(latency_ms, event_time) AS latency_ms,\n    argMax(status, event_time) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  quantile(0.95)(latency_ms) / 1000.0 AS p95_latency_s\nFROM final\nWHERE final_status IN ('SUCCESS','FAILED') AND latency_ms IS NOT NULL",
+          "refId": "A",
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false
+        }
+      ],
+      "title": "p95 Latency (s)",
+      "type": "stat"
+    },
+    {
+      "datasource": "clickhouse-main",
       "fieldConfig": {
         "defaults": {
-          "decimals": 0,
-          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 10 },
-              { "color": "red", "value": 50 }
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
             ]
-          }
+          },
+          "unit": "none"
         },
         "overrides": []
       },
-      "targets": [
-        {
-          "refId": "A",
-          "rawSql": "SELECT count() AS sla_breaches\nFROM sla.report_runs_v\nWHERE total_secs > 10\n  AND requested_at > now() - INTERVAL 24 HOUR;"
-        }
-      ]
-    },
-    {
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
       "id": 5,
-      "type": "timeseries",
-      "title": "Runs Over Time",
-      "datasource": {
-        "type": "vertamedia-clickhouse-datasource",
-        "uid": "clickhouse-main"
-      },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
-      "fieldConfig": {
-        "defaults": { "decimals": 0, "unit": "none" },
-        "overrides": []
-      },
       "options": {
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "single" }
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "code",
+          "extrapolate": true,
+          "format": "time_series",
+          "formattedQuery": "SELECT\n  toStartOfMinute(requested_at) AS time,\n  countDistinct(run_id) AS runs\nFROM reports.report_runs_v\nWHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                      AND toDateTime(intDiv(${__to}, 1000), 'UTC')\nGROUP BY time\nORDER BY time",
+          "intervalFactor": 1,
+          "query": "SELECT\n  toStartOfMinute(requested_at) AS time,\n  countDistinct(run_id) AS runs\nFROM reports.report_runs_v\nWHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                      AND toDateTime(intDiv(${__to}, 1000), 'UTC')\nGROUP BY time\nORDER BY time\n",
+          "rawQuery": "SELECT\n  toStartOfMinute(requested_at) AS time,\n  countDistinct(run_id) AS runs\nFROM reports.report_runs_v\nWHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                      AND toDateTime(intDiv(${__to}, 1000), 'UTC')\nGROUP BY time\nORDER BY time",
           "refId": "A",
-          "rawSql": "SELECT\n  toStartOfInterval(requested_at, INTERVAL 5 MINUTE) AS t,\n  count() AS runs\nFROM sla.report_runs_v\nWHERE $__timeFilter(requested_at)\nGROUP BY t\nORDER BY t;"
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false
         }
-      ]
+      ],
+      "title": "Runs Over Time (per 1m)",
+      "type": "timeseries"
     },
     {
+      "datasource": "clickhouse-main",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
       "id": 6,
-      "type": "timeseries",
-      "title": "SLA % Met Over Time (10s & 30s)",
-      "datasource": {
-        "type": "vertamedia-clickhouse-datasource",
-        "uid": "clickhouse-main"
-      },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
-      "fieldConfig": {
-        "defaults": { "decimals": 1, "unit": "percent" },
-        "overrides": []
-      },
       "options": {
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "code",
+          "extrapolate": true,
+          "format": "time_series",
+          "formattedQuery": "WITH final AS (\n  SELECT\n    run_id,\n    toStartOfInterval(requested_at, INTERVAL 5 minute) AS time,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id, time\n)\nSELECT\n  time,\n  100.0 * countIf(final_status = 'SUCCESS' AND latency_ms <= 10000)\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS pct_met_10s,\n  100.0 * countIf(final_status = 'SUCCESS' AND latency_ms <= 30000)\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS pct_met_30s\nFROM final\nGROUP BY time\nORDER BY time",
+          "intervalFactor": 1,
+          "query": "WITH final AS (\n  SELECT\n    run_id,\n    toStartOfInterval(requested_at, INTERVAL 5 minute) AS time,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id, time\n)\nSELECT\n  time,\n  100.0 * countIf(final_status = 'SUCCESS' AND latency_ms <= 10000)\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS pct_met_10s,\n  100.0 * countIf(final_status = 'SUCCESS' AND latency_ms <= 30000)\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS pct_met_30s\nFROM final\nGROUP BY time\nORDER BY time\n",
+          "rawQuery": "WITH final AS (\n  SELECT\n    run_id,\n    toStartOfInterval(requested_at, INTERVAL 5 minute) AS time,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id, time\n)\nSELECT\n  time,\n  100.0 * countIf(final_status = 'SUCCESS' AND latency_ms <= 10000)\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS pct_met_10s,\n  100.0 * countIf(final_status = 'SUCCESS' AND latency_ms <= 30000)\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS pct_met_30s\nFROM final\nGROUP BY time\nORDER BY time",
           "refId": "A",
-          "rawSql": "SELECT\n  window_start AS t,\n  pct_met_10s,\n  pct_met_30s\nFROM sla.report_runs_5m_v\nWHERE $__timeFilter(window_start)\nORDER BY t;"
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false
         }
-      ]
+      ],
+      "title": "SLA % Met Over Time (10s & 30s, 5m buckets)",
+      "type": "timeseries"
     },
     {
+      "datasource": "clickhouse-main",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 12
+      },
       "id": 7,
-      "type": "barchart",
-      "title": "SLA Tier Distribution",
-      "datasource": {
-        "type": "vertamedia-clickhouse-datasource",
-        "uid": "clickhouse-main"
-      },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 12 },
-      "fieldConfig": {
-        "defaults": { "decimals": 0, "unit": "none" },
-        "overrides": []
-      },
       "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
         "orientation": "horizontal",
-        "legend": { "displayMode": "list", "placement": "right" }
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
+          "adHocFilters": [],
+          "adHocValuesQuery": "",
+          "add_metadata": true,
+          "contextWindowSize": "10",
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "builder",
+          "extrapolate": true,
+          "format": "table",
+          "formattedQuery": "/* grafana dashboard='Reporting SLA Observability', user=0 */\nWITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(1766964236657, 1000), 'UTC')\n                        AND toDateTime(intDiv(1766967836657, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  multiIf(\n    final_status = 'FAILED', 'FAILED',\n    latency_ms <= 1000,  '≤1s',\n    latency_ms <= 3000,  '≤3s',\n    latency_ms <= 10000, '≤10s',\n    latency_ms <= 30000, '≤30s',\n    '>30s'\n  ) AS tier,\n  count() AS runs\nFROM final\nGROUP BY tier\nORDER BY runs DESC",
+          "interval": "",
+          "intervalFactor": 1,
+          "nullifySparse": false,
+          "query": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  multiIf(\n    final_status = 'FAILED', 'FAILED',\n    latency_ms <= 1000,  '≤1s',\n    latency_ms <= 3000,  '≤3s',\n    latency_ms <= 10000, '≤10s',\n    latency_ms <= 30000, '≤30s',\n    '>30s'\n  ) AS tier,\n  count() AS runs\nFROM final\nGROUP BY tier\nORDER BY runs DESC\n",
+          "rawQuery": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  multiIf(\n    final_status = 'FAILED', 'FAILED',\n    final_status NOT IN ('SUCCESS','FAILED'), 'IN_FLIGHT',\n    latency_ms <= 1000,  '≤1s',\n    latency_ms <= 3000,  '≤3s',\n    latency_ms <= 10000, '≤10s',\n    latency_ms <= 30000, '≤30s',\n    '>30s'\n  ) AS tier,\n  count() AS runs\nFROM final\nGROUP BY tier\nORDER BY runs DESC",
           "refId": "A",
-          "rawSql": "SELECT\n  sla_tier,\n  count() AS runs\nFROM sla.report_runs_tier_v\nWHERE $__timeFilter(requested_at)\nGROUP BY sla_tier\nORDER BY runs DESC;"
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false,
+          "useWindowFuncForMacros": true
         }
-      ]
+      ],
+      "title": "SLA Tier Distribution (derived from latency_ms)",
+      "type": "barchart"
     },
     {
+      "datasource": "clickhouse-main",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 12
+      },
       "id": 8,
-      "type": "barchart",
-      "title": "Average Total Latency by Report Type",
-      "datasource": {
-        "type": "vertamedia-clickhouse-datasource",
-        "uid": "clickhouse-main"
-      },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 12 },
-      "fieldConfig": {
-        "defaults": { "decimals": 1, "unit": "s" },
-        "overrides": []
-      },
       "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
         "orientation": "horizontal",
-        "legend": { "displayMode": "list", "placement": "right" }
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "code",
+          "extrapolate": true,
+          "format": "table",
+          "formattedQuery": "WITH final AS (\n  SELECT\n    run_id,\n    report_type,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id, report_type\n)\nSELECT\n  report_type,\n  avgIf(latency_ms, final_status IN ('SUCCESS','FAILED') AND latency_ms IS NOT NULL) / 1000.0 AS avg_latency_s\nFROM final\nGROUP BY report_type\nORDER BY avg_latency_s DESC",
+          "intervalFactor": 1,
+          "query": "WITH final AS (\n  SELECT\n    run_id,\n    report_type,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id, report_type\n)\nSELECT\n  report_type,\n  avgIf(latency_ms, final_status IN ('SUCCESS','FAILED') AND latency_ms IS NOT NULL) / 1000.0 AS avg_latency_s\nFROM final\nGROUP BY report_type\nORDER BY avg_latency_s DESC\n",
+          "rawQuery": "WITH final AS (\n  SELECT\n    run_id,\n    report_type,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id, report_type\n)\nSELECT\n  report_type,\n  avgIf(latency_ms, final_status IN ('SUCCESS','FAILED') AND latency_ms IS NOT NULL) / 1000.0 AS avg_latency_s\nFROM final\nGROUP BY report_type\nORDER BY avg_latency_s DESC",
           "refId": "A",
-          "rawSql": "SELECT\n  report_type,\n  avg(total_secs) AS avg_total_secs\nFROM sla.report_runs_v\nWHERE $__timeFilter(requested_at)\nGROUP BY report_type\nORDER BY avg_total_secs DESC;"
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false
         }
-      ]
+      ],
+      "title": "Average Latency by Report Type (s)",
+      "type": "barchart"
     },
     {
+      "datasource": "clickhouse-main",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 12
+      },
       "id": 9,
-      "type": "barchart",
-      "title": "Failure Rate by Report Type",
-      "datasource": {
-        "type": "vertamedia-clickhouse-datasource",
-        "uid": "clickhouse-main"
-      },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 12 },
-      "fieldConfig": {
-        "defaults": { "decimals": 1, "unit": "percentunit" },
-        "overrides": []
-      },
       "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
         "orientation": "horizontal",
-        "legend": { "displayMode": "list", "placement": "right" }
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "code",
+          "extrapolate": true,
+          "format": "table",
+          "formattedQuery": "WITH final AS (\n  SELECT\n    run_id,\n    report_type,\n    argMax(status, event_time) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id, report_type\n)\nSELECT\n  report_type,\n  100.0 * countIf(final_status = 'FAILED')\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS failure_pct\nFROM final\nGROUP BY report_type\nORDER BY failure_pct DESC",
+          "intervalFactor": 1,
+          "query": "WITH final AS (\n  SELECT\n    run_id,\n    report_type,\n    argMax(status, event_time) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id, report_type\n)\nSELECT\n  report_type,\n  100.0 * countIf(final_status = 'FAILED')\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS failure_pct\nFROM final\nGROUP BY report_type\nORDER BY failure_pct DESC\n",
+          "rawQuery": "WITH final AS (\n  SELECT\n    run_id,\n    report_type,\n    argMax(status, event_time) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id, report_type\n)\nSELECT\n  report_type,\n  100.0 * countIf(final_status = 'FAILED')\n       / nullIf(countIf(final_status IN ('SUCCESS','FAILED')), 0) AS failure_pct\nFROM final\nGROUP BY report_type\nORDER BY failure_pct DESC",
           "refId": "A",
-          "rawSql": "SELECT\n  report_type,\n  countIf(status = 'failed') / count() AS failure_rate\nFROM sla.report_runs_v\nWHERE $__timeFilter(requested_at)\nGROUP BY report_type\nORDER BY failure_rate DESC;"
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false
         }
-      ]
-    },
-    {
-      "id": 10,
-      "type": "table",
-      "title": "Top 20 Slowest Runs",
-      "datasource": {
-        "type": "vertamedia-clickhouse-datasource",
-        "uid": "clickhouse-main"
-      },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
-      "fieldConfig": {
-        "defaults": { "decimals": 1, "unit": "s" },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true,
-        "footer": { "countRows": true }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "rawSql": "SELECT\n  requested_at,\n  subscriber_id,\n  report_type,\n  status,\n  total_secs,\n  queue_secs,\n  run_secs\nFROM sla.report_runs_v\nORDER BY total_secs DESC\nLIMIT 20;"
-        }
-      ]
-    },
-    {
-      "id": 11,
-      "type": "table",
-      "title": "Recent Failed Runs",
-      "datasource": {
-        "type": "vertamedia-clickhouse-datasource",
-        "uid": "clickhouse-main"
-      },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
-      "fieldConfig": {
-        "defaults": { "decimals": 1, "unit": "s" },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true,
-        "footer": { "countRows": true }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "rawSql": "SELECT\n  requested_at,\n  subscriber_id,\n  report_type,\n  status,\n  error_code,\n  error_message,\n  total_secs\nFROM sla.report_runs_v\nWHERE status = 'failed'\nORDER BY requested_at DESC\nLIMIT 50;"
-        }
-      ]
+      ],
+      "title": "Failure Rate by Report Type (%)",
+      "type": "barchart"
     }
   ],
-  "refresh": "30s",
-  "schemaVersion": 38,
-  "style": "dark",
-  "tags": ["sla", "reports", "clickhouse"],
-  "templating": { "list": [] },
-  "time": { "from": "now-6h", "to": "now" },
-  "timepicker": {
-    "refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "1h"]
+  "preload": false,
+  "refresh": "",
+  "schemaVersion": 42,
+  "tags": [
+    "sla",
+    "observability",
+    "clickhouse",
+    "mongodb",
+    "cdc"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "ClickHouse",
+          "value": "clickhouse-main"
+        },
+        "label": "ClickHouse",
+        "name": "DS_CLICKHOUSE",
+        "options": [],
+        "query": "vertamedia-clickhouse-datasource",
+        "refresh": 1,
+        "type": "datasource"
+      }
+    ]
   },
-  "timezone": "",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "timezone": "utc",
   "title": "Reporting SLA Observability",
-  "uid": null,
-  "version": 1,
-  "weekStart": ""
+  "uid": "b4da0dbd-5671-4e60-b2f2-e0e594c1fb10",
+  "version": 3
 }

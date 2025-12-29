@@ -320,7 +320,7 @@ if [[ -n "${MONGO_GEN_REPO_URL:-}" ]]; then
   source "${MONGO_GEN_DIR}/.venv/bin/activate"
   python --version
   pip install -U pip
-  pip install -e "${MONGO_GEN_DIR}"
+  pip install -e "${MONGO_GEN_DIR}[dev]"
   deactivate || true
 
   cat >/usr/local/bin/mongo-gen <<'RUNMG'

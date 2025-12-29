@@ -4,88 +4,60 @@
 CREATE DATABASE IF NOT EXISTS reports;
 
 CREATE OR REPLACE VIEW reports.report_runs_v AS
+WITH
+  after_json                                            AS j,
+
+  -- requested_at: supports either ISO string or {"$date":ms}
+  JSONExtractRaw(j, 'requested_at')                      AS req_raw,
+  JSONExtractInt(req_raw, '$date')                       AS req_ms,
+  JSONExtractString(j, 'requested_at')                   AS req_str,
+  if(
+    req_ms != 0,
+    toDateTime64(req_ms / 1000.0, 3, 'UTC'),
+    parseDateTime64BestEffortOrNull(req_str)
+  )                                                      AS requested_at,
+
+  -- completed_at: supports either ISO string or {"$date":ms}
+  JSONExtractRaw(j, 'completed_at')                      AS comp_raw,
+  JSONExtractInt(comp_raw, '$date')                      AS comp_ms,
+  JSONExtractString(j, 'completed_at')                   AS comp_str,
+  if(
+    comp_ms != 0,
+    toDateTime64(comp_ms / 1000.0, 3, 'UTC'),
+    parseDateTime64BestEffortOrNull(comp_str)
+  )                                                      AS completed_at
+
 SELECT
-  JSONExtractString(after_json, 'run_id')        AS run_id,
-  JSONExtractString(after_json, 'subscriber_id') AS subscriber_id,
-  JSONExtractString(after_json, 'report_type')   AS report_type,
-  JSONExtractString(after_json, 'status')        AS status,
-  JSONExtractString(after_json, 'stage')         AS stage,
-  JSONExtractString(after_json, 'incident')      AS incident,
+  -- identity
+  JSONExtractString(j, '_id')                            AS _id,
+  JSONExtractString(j, 'run_id')                         AS run_id,
+  JSONExtractString(j, 'overlay_id')                     AS overlay_id,
+  JSONExtractString(j, 'test_run_id')                    AS test_run_id,
+  JSONExtractString(j, 'scenario_id')                    AS scenario_id,
 
-  JSONExtractString(after_json, 'error_code')    AS error_code,
-  JSONExtractString(after_json, 'error_message') AS error_message,
-  JSONExtractString(after_json, '_id', '$oid')   AS mongo_id,
+  -- dims
+  JSONExtractString(j, 'subscriber_id')                  AS subscriber_id,
+  JSONExtractString(j, 'report_type')                    AS report_type,
+  JSONExtractString(j, 'status')                         AS status,
 
-  -- requested_at
-  coalesce(
-    if(
-      JSONExtractInt(after_json, 'requested_at', '$date') IS NULL,
-      NULL,
-      fromUnixTimestamp64Milli(
-        JSONExtractInt(after_json, 'requested_at', '$date')
-      )
-    ),
-    parseDateTime64BestEffortOrNull(
-      JSONExtractString(after_json, 'requested_at')
-    )
-  ) AS requested_at,
+  -- time
+  requested_at,
+  completed_at,
 
-  -- started_at
-  coalesce(
-    if(
-      JSONExtractInt(after_json, 'started_at', '$date') IS NULL,
-      NULL,
-      fromUnixTimestamp64Milli(
-        JSONExtractInt(after_json, 'started_at', '$date')
-      )
-    ),
-    parseDateTime64BestEffortOrNull(
-      JSONExtractString(after_json, 'started_at')
-    )
-  ) AS started_at,
+  -- metrics / labels
+  toUInt32(ifNull(JSONExtractInt(j, 'latency_ms'), 0))    AS latency_ms,
+  JSONExtractString(j, 'dependency')                     AS dependency,
+  JSONExtractString(j, 'error_code')                     AS error_code,
+  JSONExtractString(j, 'incident_id')                    AS incident_id,
+  JSONExtract(j, 'tags', 'Array(String)')                AS tags,
 
-  -- finished_at (preferred) or completed_at (legacy)
-  coalesce(
-    if(
-      JSONExtractInt(after_json, 'finished_at', '$date') IS NULL,
-      NULL,
-      fromUnixTimestamp64Milli(
-        JSONExtractInt(after_json, 'finished_at', '$date')
-      )
-    ),
-    parseDateTime64BestEffortOrNull(
-      JSONExtractString(after_json, 'finished_at')
-    ),
-    if(
-      JSONExtractInt(after_json, 'completed_at', '$date') IS NULL,
-      NULL,
-      fromUnixTimestamp64Milli(
-        JSONExtractInt(after_json, 'completed_at', '$date')
-      )
-    ),
-    parseDateTime64BestEffortOrNull(
-      JSONExtractString(after_json, 'completed_at')
-    )
-  ) AS finished_at,
-
-  -- updated_at
-  coalesce(
-    if(
-      JSONExtractInt(after_json, 'updated_at', '$date') IS NULL,
-      NULL,
-      fromUnixTimestamp64Milli(
-        JSONExtractInt(after_json, 'updated_at', '$date')
-      )
-    ),
-    parseDateTime64BestEffortOrNull(
-      JSONExtractString(after_json, 'updated_at')
-    )
-  ) AS updated_at,
-
+  -- CDC metadata
+  ts_ms,
   event_time,
-  op AS cdc_op
+  op
 
 FROM raw.mongo_cdc_events
 WHERE db = 'reports'
   AND collection = 'report_runs'
-  AND length(after_json) > 0;
+  AND after_json != ''
+  AND requested_at IS NOT NULL;
