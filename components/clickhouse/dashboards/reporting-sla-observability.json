@@ -627,11 +627,11 @@
           "editorMode": "builder",
           "extrapolate": true,
           "format": "table",
-          "formattedQuery": "/* grafana dashboard='Reporting SLA Observability', user=0 */\nWITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(1766964236657, 1000), 'UTC')\n                        AND toDateTime(intDiv(1766967836657, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  multiIf(\n    final_status = 'FAILED', 'FAILED',\n    latency_ms <= 1000,  '≤1s',\n    latency_ms <= 3000,  '≤3s',\n    latency_ms <= 10000, '≤10s',\n    latency_ms <= 30000, '≤30s',\n    '>30s'\n  ) AS tier,\n  count() AS runs\nFROM final\nGROUP BY tier\nORDER BY runs DESC",
+          "formattedQuery": "/* grafana dashboard='Reporting SLA Observability', user=0 */\nWITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time)     AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(1767140977136, 1000), 'UTC')\n                        AND toDateTime(intDiv(1767144577136, 1000), 'UTC')\n  GROUP BY run_id\n),\nbucketed AS (\n  SELECT\n    multiIf(\n      final_status = 'FAILED', '>30s',\n      latency_ms <= 1000,  '≤1s',\n      latency_ms <= 3000,  '≤3s',\n      latency_ms <= 10000, '≤10s',\n      latency_ms <= 30000, '≤30s',\n      '>30s'\n    ) AS tier,\n    multiIf(\n      final_status = 'FAILED', 5,\n      latency_ms <= 1000,  1,\n      latency_ms <= 3000,  2,\n      latency_ms <= 10000, 3,\n      latency_ms <= 30000, 4,\n      5\n    ) AS sort_key\n  FROM final\n)\nSELECT\n  tier,\n  count() AS runs\nFROM bucketed\nGROUP BY tier, sort_key\nORDER BY sort_key",
           "interval": "",
           "intervalFactor": 1,
           "nullifySparse": false,
-          "query": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  multiIf(\n    final_status = 'FAILED', 'FAILED',\n    latency_ms <= 1000,  '≤1s',\n    latency_ms <= 3000,  '≤3s',\n    latency_ms <= 10000, '≤10s',\n    latency_ms <= 30000, '≤30s',\n    '>30s'\n  ) AS tier,\n  count() AS runs\nFROM final\nGROUP BY tier\nORDER BY runs DESC\n",
+          "query": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time)     AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n),\nbucketed AS (\n  SELECT\n    multiIf(\n      final_status = 'FAILED', '>30s',\n      latency_ms <= 1000,  '≤1s',\n      latency_ms <= 3000,  '≤3s',\n      latency_ms <= 10000, '≤10s',\n      latency_ms <= 30000, '≤30s',\n      '>30s'\n    ) AS tier,\n    multiIf(\n      final_status = 'FAILED', 5,\n      latency_ms <= 1000,  1,\n      latency_ms <= 3000,  2,\n      latency_ms <= 10000, 3,\n      latency_ms <= 30000, 4,\n      5\n    ) AS sort_key\n  FROM final\n)\nSELECT\n  tier,\n  count() AS runs\nFROM bucketed\nGROUP BY tier, sort_key\nORDER BY sort_key\n",
           "rawQuery": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  multiIf(\n    final_status = 'FAILED', 'FAILED',\n    final_status NOT IN ('SUCCESS','FAILED'), 'IN_FLIGHT',\n    latency_ms <= 1000,  '≤1s',\n    latency_ms <= 3000,  '≤3s',\n    latency_ms <= 10000, '≤10s',\n    latency_ms <= 30000, '≤30s',\n    '>30s'\n  ) AS tier,\n  count() AS runs\nFROM final\nGROUP BY tier\nORDER BY runs DESC",
           "refId": "A",
           "round": "0s",
@@ -849,6 +849,290 @@
       ],
       "title": "Failure Rate by Report Type (%)",
       "type": "barchart"
+    },
+    {
+      "datasource": "clickhouse-main",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "adHocFilters": [],
+          "adHocValuesQuery": "",
+          "add_metadata": true,
+          "contextWindowSize": "10",
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "builder",
+          "extrapolate": true,
+          "format": "time_series",
+          "formattedQuery": "/* grafana dashboard='Reporting SLA Observability', user=0 */\nWITH final AS (\n  SELECT\n    run_id,\n    toStartOfInterval(requested_at, INTERVAL 1 minute) AS time,\n    argMax(status, event_time)     AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(1767139828758, 1000), 'UTC')\n                        AND toDateTime(intDiv(1767143428758, 1000), 'UTC')\n  GROUP BY run_id, time\n)\nSELECT\n  time,\n  countIf(final_status = 'FAILED') AS exec_failures,\n  countIf(final_status = 'SUCCESS' AND latency_ms > 30000) AS sla_breaches\nFROM final\nGROUP BY time\nORDER BY time",
+          "interval": "",
+          "intervalFactor": 1,
+          "nullifySparse": false,
+          "query": "WITH final AS (\n  SELECT\n    run_id,\n    toStartOfInterval(requested_at, INTERVAL 1 minute) AS time,\n    argMax(status, event_time)     AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id, time\n)\nSELECT\n  time,\n  countIf(final_status = 'FAILED') AS exec_failures,\n  countIf(final_status = 'SUCCESS' AND latency_ms > 30000) AS sla_breaches\nFROM final\nGROUP BY time\nORDER BY time\n",
+          "rawQuery": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms,\n    max(requested_at) AS requested_at\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  toStartOfMinute(requested_at) AS time,\n  countIf(final_status != 'FAILED' AND latency_ms > 30000) AS sla_breaches,\n  countIf(final_status = 'FAILED') AS exec_failures\nFROM final\nGROUP BY time\nORDER BY time",
+          "refId": "A",
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false,
+          "useWindowFuncForMacros": true
+        }
+      ],
+      "title": "Slow Runs Over Time (SLA breaches >30s vs Exec failures)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "clickhouse-main",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 27
+      },
+      "id": 11,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "adHocFilters": [],
+          "adHocValuesQuery": "",
+          "add_metadata": true,
+          "contextWindowSize": "10",
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "code",
+          "extrapolate": true,
+          "format": "table",
+          "formattedQuery": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  multiIf(\n    latency_ms <= 1000,  '≤1s',\n    latency_ms <= 3000,  '≤3s',\n    latency_ms <= 10000, '≤10s',\n    latency_ms <= 30000, '≤30s',\n    '30s+'\n  ) AS bucket,\n  count() AS runs\nFROM final\nWHERE final_status = 'SUCCESS' AND latency_ms IS NOT NULL\nGROUP BY bucket\nORDER BY\n  multiIf(bucket='≤1s',1,bucket='≤3s',2,bucket='≤10s',3,bucket='≤30s',4,5)",
+          "interval": "",
+          "intervalFactor": 1,
+          "nullifySparse": false,
+          "query": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  multiIf(\n    latency_ms <= 1000,  '≤1s',\n    latency_ms <= 3000,  '≤3s',\n    latency_ms <= 10000, '≤10s',\n    latency_ms <= 30000, '≤30s',\n    '30s+'\n  ) AS bucket,\n  count() AS runs\nFROM final\nWHERE final_status = 'SUCCESS' AND latency_ms IS NOT NULL\nGROUP BY bucket\nORDER BY\n  multiIf(bucket='≤1s',1,bucket='≤3s',2,bucket='≤10s',3,bucket='≤30s',4,5)\n",
+          "rawQuery": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  multiIf(\n    latency_ms <= 1000,  '≤1s',\n    latency_ms <= 3000,  '≤3s',\n    latency_ms <= 10000, '≤10s',\n    latency_ms <= 30000, '≤30s',\n    '30s+'\n  ) AS bucket,\n  count() AS runs\nFROM final\nWHERE final_status = 'SUCCESS' AND latency_ms IS NOT NULL\nGROUP BY bucket\nORDER BY\n  multiIf(bucket='≤1s',1,bucket='≤3s',2,bucket='≤10s',3,bucket='≤30s',4,5)",
+          "refId": "A",
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false,
+          "useWindowFuncForMacros": true
+        }
+      ],
+      "title": "Latency Distribution (Successful runs only)",
+      "type": "barchart"
+    },
+    {
+      "datasource": "clickhouse-main",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 27
+      },
+      "id": 12,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "adHocFilters": [],
+          "adHocValuesQuery": "",
+          "add_metadata": true,
+          "contextWindowSize": "10",
+          "database": "",
+          "dateColDataType": "",
+          "dateLoading": false,
+          "dateTimeColDataType": "",
+          "dateTimeType": "DATETIME",
+          "datetimeLoading": false,
+          "editorMode": "builder",
+          "extrapolate": true,
+          "format": "table",
+          "formattedQuery": "/* grafana dashboard='Reporting SLA Observability', user=0 */\nWITH final AS (\n  SELECT\n    run_id,\n    toStartOfInterval(requested_at, INTERVAL 1 minute) AS time,\n    argMax(status, event_time)      AS final_status,\n    argMax(latency_ms, event_time)  AS latency_ms,\n    argMax(report_type, event_time) AS report_type\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(1767139828758, 1000), 'UTC')\n                        AND toDateTime(intDiv(1767143428758, 1000), 'UTC')\n  GROUP BY run_id, time\n)\nSELECT\n  time AS requested_at,\n  run_id,\n  report_type,\n  round(latency_ms / 1000.0, 2) AS latency_s\nFROM final\nWHERE final_status = 'SUCCESS' AND latency_ms IS NOT NULL\nORDER BY latency_ms DESC\nLIMIT 20",
+          "interval": "",
+          "intervalFactor": 1,
+          "nullifySparse": false,
+          "query": "WITH final AS (\n  SELECT\n    run_id,\n    toStartOfInterval(requested_at, INTERVAL 1 minute) AS time,\n    argMax(status, event_time)      AS final_status,\n    argMax(latency_ms, event_time)  AS latency_ms,\n    argMax(report_type, event_time) AS report_type\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id, time\n)\nSELECT\n  time AS requested_at,\n  run_id,\n  report_type,\n  round(latency_ms / 1000.0, 2) AS latency_s\nFROM final\nWHERE final_status = 'SUCCESS' AND latency_ms IS NOT NULL\nORDER BY latency_ms DESC\nLIMIT 20\n",
+          "rawQuery": "WITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status,\n    argMax(latency_ms, event_time) AS latency_ms,\n    argMax(report_type, event_time) AS report_type,\n    max(requested_at) AS requested_at\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(${__from}, 1000), 'UTC')\n                        AND toDateTime(intDiv(${__to}, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  requested_at,\n  run_id,\n  report_type,\n  round(latency_ms / 1000.0, 2) AS latency_s\nFROM final\nWHERE final_status = 'SUCCESS' AND latency_ms IS NOT NULL\nORDER BY latency_ms DESC\nLIMIT 20",
+          "refId": "A",
+          "round": "0s",
+          "skip_comments": true,
+          "table": "",
+          "tableLoading": false,
+          "useWindowFuncForMacros": true
+        }
+      ],
+      "title": "Top 20 Slowest Successful Runs",
+      "type": "table"
     }
   ],
   "preload": false,
@@ -893,5 +1177,5 @@
   "timezone": "utc",
   "title": "Reporting SLA Observability",
   "uid": "b4da0dbd-5671-4e60-b2f2-e0e594c1fb10",
-  "version": 3
+  "version": 5
 }
