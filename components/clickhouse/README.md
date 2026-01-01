@@ -1,4 +1,4 @@
-# ClickHouse & MongoDB Components (EC2) — Redpanda-ready + S3 Backups + Observability
+# ClickHouse & MongoDB Components (EC2) — Kafka + S3 Backups = Observability
 
 ![ClickHouse Component](../../img/clickhouse.drawio.png)
 
