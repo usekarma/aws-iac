@@ -15,6 +15,10 @@ CREATE DATABASE IF NOT EXISTS raw;
 --   mongo.sales.inventory
 --   mongo.sales.orders
 --   mongo.reports.report_runs
+--   mongo.reports.report_requests
+--   mongo.reports.report_attempts
+--   mongo.reports.dependency_calls
+--   mongo.reports.outcomes
 CREATE TABLE IF NOT EXISTS raw.kafka_mongo_cdc_raw
 (
     before            String,
@@ -28,7 +32,7 @@ CREATE TABLE IF NOT EXISTS raw.kafka_mongo_cdc_raw
 ENGINE = Kafka
 SETTINGS
     kafka_broker_list    = '{{KAFKA_BROKER}}',
-    kafka_topic_list     = 'mongo.sales.customers,mongo.sales.vendors,mongo.sales.products,mongo.sales.inventory,mongo.sales.orders,mongo.reports.report_runs',
+    kafka_topic_list     = 'mongo.sales.customers,mongo.sales.vendors,mongo.sales.products,mongo.sales.inventory,mongo.sales.orders,mongo.reports.report_runs,mongo.reports.report_requests,mongo.reports.report_attempts,mongo.reports.dependency_calls,mongo.reports.outcomes',
     kafka_group_name     = 'clickhouse_mongo_cdc',
     kafka_format         = 'JSONEachRow',
     kafka_num_consumers  = 1;

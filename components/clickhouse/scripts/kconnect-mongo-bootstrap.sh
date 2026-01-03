@@ -11,6 +11,7 @@ CONNECTOR_JSON_PATH="${CONNECTOR_JSON_PATH:-/usr/local/bin/${CONNECTOR_NAME}.jso
 KCONNECT_HOST="${KCONNECT_HOST:-}"
 MONGO_CONNECTION_STRING="${MONGO_CONNECTION_STRING:-}"
 CURL_BIN="${CURL_BIN:-curl}"
+JQ_BIN="${JQ_BIN:-jq}"
 
 echo "[kconnect-bootstrap] ===== ENVIRONMENT ====="
 echo "CONNECTOR_NAME=${CONNECTOR_NAME}"
@@ -18,6 +19,7 @@ echo "KCONNECT_HOST=${KCONNECT_HOST}"
 echo "MONGO_CONNECTION_STRING=${MONGO_CONNECTION_STRING}"
 echo "CONNECTOR_JSON_PATH=${CONNECTOR_JSON_PATH}"
 echo "CURL_BIN=${CURL_BIN}"
+echo "JQ_BIN=${JQ_BIN}"
 echo "============================================"
 
 # ------------------------------------------------------------
@@ -30,6 +32,11 @@ fi
 
 if [[ -z "${KCONNECT_HOST}" ]]; then
   echo "[kconnect-bootstrap] WARN: KCONNECT_HOST is not set. Skipping connector bootstrap."
+  exit 0
+fi
+
+if ! command -v "${JQ_BIN}" >/dev/null 2>&1; then
+  echo "[kconnect-bootstrap] WARN: jq not found (JQ_BIN=${JQ_BIN}). Skipping connector bootstrap."
   exit 0
 fi
 
@@ -58,7 +65,7 @@ cat >"${CONNECTOR_JSON_PATH}" <<EOF
     "mongodb.name": "mongo",
 
     "database.include.list": "sales,reports",
-    "collection.include.list": "sales.customers,sales.vendors,sales.products,sales.inventory,sales.orders,reports.report_runs",
+    "collection.include.list": "sales.customers,sales.vendors,sales.products,sales.inventory,sales.orders,reports.report_runs,reports.report_requests,reports.report_attempts,reports.dependency_calls,reports.outcomes",
 
     "topic.prefix": "mongo",
     "snapshot.mode": "initial",
@@ -84,17 +91,19 @@ for i in {1..60}; do
   sleep 5
   if [[ "${i}" -eq 60 ]]; then
     echo "[kconnect-bootstrap] WARN: Kafka Connect did not become ready in time. Skipping connector bootstrap."
-    exit 0   # WARN and bail, don't break userdata
+    exit 0
   fi
 done
 
 # ------------------------------------------------------------
-# Create connector via POST /connectors (idempotent-ish)
+# Create connector via POST /connectors
+#   - 201 Created => good
+#   - 409 Exists  => update via PUT /config (true idempotency)
 # ------------------------------------------------------------
 echo "[kconnect-bootstrap] Applying Debezium Mongo connector ${CONNECTOR_NAME}..."
 
 CREATE_CODE="$(
-  "${CURL_BIN}" -sS -o "/tmp/${CONNECTOR_NAME}_resp.json" -w "%{http_code}" \
+  "${CURL_BIN}" -sS -o "/tmp/${CONNECTOR_NAME}_create_resp.json" -w "%{http_code}" \
     -X POST "${KCONNECT_BASE}/connectors" \
     -H "Content-Type: application/json" \
     --data-binary "@${CONNECTOR_JSON_PATH}" || true
@@ -102,11 +111,34 @@ CREATE_CODE="$(
 
 echo "[kconnect-bootstrap] Connector POST HTTP status: ${CREATE_CODE}"
 echo "[kconnect-bootstrap] Response body:"
-cat "/tmp/${CONNECTOR_NAME}_resp.json" 2>/dev/null || echo "[kconnect-bootstrap] (no response body)"
+cat "/tmp/${CONNECTOR_NAME}_create_resp.json" 2>/dev/null || echo "[kconnect-bootstrap] (no response body)"
 echo
 
-# Treat 201 Created or 409 Already Exists as success
-if [[ "${CREATE_CODE}" != "201" && "${CREATE_CODE}" != "409" ]]; then
+if [[ "${CREATE_CODE}" == "201" ]]; then
+  echo "[kconnect-bootstrap] Connector created."
+elif [[ "${CREATE_CODE}" == "409" ]]; then
+  echo "[kconnect-bootstrap] Connector already exists; updating config via PUT ..."
+
+  # Extract just the config object (Kafka Connect expects the config map, not {name, config})
+  CONFIG_ONLY_PATH="/tmp/${CONNECTOR_NAME}_config_only.json"
+  "${JQ_BIN}" -c '.config' "${CONNECTOR_JSON_PATH}" > "${CONFIG_ONLY_PATH}"
+
+  UPDATE_CODE="$(
+    "${CURL_BIN}" -sS -o "/tmp/${CONNECTOR_NAME}_update_resp.json" -w "%{http_code}" \
+      -X PUT "${KCONNECT_BASE}/connectors/${CONNECTOR_NAME}/config" \
+      -H "Content-Type: application/json" \
+      --data-binary "@${CONFIG_ONLY_PATH}" || true
+  )"
+
+  echo "[kconnect-bootstrap] Connector PUT HTTP status: ${UPDATE_CODE}"
+  echo "[kconnect-bootstrap] Update response body:"
+  cat "/tmp/${CONNECTOR_NAME}_update_resp.json" 2>/dev/null || echo "[kconnect-bootstrap] (no response body)"
+  echo
+
+  if [[ "${UPDATE_CODE}" != "200" && "${UPDATE_CODE}" != "201" ]]; then
+    echo "[kconnect-bootstrap] WARN: Unexpected HTTP status from connector update: ${UPDATE_CODE}"
+  fi
+else
   echo "[kconnect-bootstrap] WARN: Unexpected HTTP status from connector create: ${CREATE_CODE}"
 fi
 

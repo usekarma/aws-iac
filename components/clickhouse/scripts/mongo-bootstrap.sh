@@ -337,6 +337,17 @@ else
   echo "[mongo-bootstrap] Skipping mongo-gen install (MONGO_GEN_REPO_URL not set)"
 fi
 
+# ---------------- Install mongo-gen run script ----------------
+if [[ -f "${MONGO_GEN_DIR}/scripts/run.sh" ]]; then
+  install -m 0755 -o root -g root \
+    "${MONGO_GEN_DIR}/scripts/run.sh" \
+    /usr/local/bin/mongo-gen-run
+
+  echo "[mongo-bootstrap] mongo-gen-run installed at /usr/local/bin/mongo-gen-run"
+else
+  echo "[mongo-bootstrap] WARN: ${MONGO_GEN_DIR}/scripts/run.sh not found; mongo-gen-run not installed" >&2
+fi
+
 # ---------------- Exporters (Mongo & Node) ---------------
 ARCH="amd64"
 case "$(uname -m)" in
