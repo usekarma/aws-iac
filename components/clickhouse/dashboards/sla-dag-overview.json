@@ -15,7 +15,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
-  "id": 24,
+  "id": 0,
   "links": [],
   "panels": [
     {
@@ -429,32 +429,21 @@
         "type": "vertamedia-clickhouse-datasource",
         "uid": "clickhouse-main"
       },
-      "description": "Which dependencies are the slowest (p95 duration) during the selected time range.",
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "fillOpacity": 80,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
             },
-            "lineWidth": 1,
-            "scaleDistribution": {
-              "type": "linear"
+            "footer": {
+              "reducers": []
             },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "inspect": false
           },
           "decimals": 0,
           "mappings": [],
@@ -470,10 +459,34 @@
                 "value": 80
               }
             ]
-          },
-          "unit": "ms"
+          }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fail_pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 9,
@@ -483,26 +496,8 @@
       },
       "id": 5,
       "options": {
-        "barRadius": 0,
-        "barWidth": 0.97,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "hidden",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "orientation": "horizontal",
-        "showValue": "auto",
-        "stacking": "none",
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        },
-        "xTickLabelRotation": 0,
-        "xTickLabelSpacing": 0
+        "cellHeight": "sm",
+        "showHeader": true
       },
       "pluginVersion": "12.3.1",
       "targets": [
@@ -514,11 +509,11 @@
           "editorMode": "builder",
           "extrapolate": true,
           "format": "table",
-          "formattedQuery": "/* grafana dashboard='SLA + DAG Overview (mongo-gen) — v2 (no value/value)', user=0 */\nSELECT\n  dep AS dependency,\n  quantile(0.95)(latency_ms) AS p95_ms\nFROM reports.dependency_calls_v\nWHERE event_time BETWEEN toDateTime(intDiv(1767487578693, 1000), 'UTC')\n                    AND toDateTime(intDiv(1767498378693, 1000), 'UTC')\nGROUP BY dep\nORDER BY p95_ms DESC\nLIMIT 10",
+          "formattedQuery": "/* grafana dashboard='SLA + DAG Overview (mongo-gen) — v2 (no value/value)', user=0 */\nSELECT\n  dep AS dependency,\n  count() AS calls,\n  round(quantile(0.95)(latency_ms), 2) AS p95_ms,\n  round(100.0 * countIf(status='FAILED') / nullIf(count(),0), 2) AS fail_pct\nFROM reports.dependency_calls_v\nWHERE event_time BETWEEN toDateTime(intDiv(1767546503455, 1000), 'UTC')\n                    AND toDateTime(intDiv(1767557303455, 1000), 'UTC')\nGROUP BY dep\nORDER BY fail_pct DESC, calls DESC\nLIMIT 25",
           "interval": "",
           "intervalFactor": 1,
           "nullifySparse": false,
-          "query": "SELECT\n  dep AS dependency,\n  quantile(0.95)(latency_ms) AS p95_ms\nFROM reports.dependency_calls_v\nWHERE event_time BETWEEN toDateTime(intDiv($__from, 1000), 'UTC')\n                    AND toDateTime(intDiv($__to, 1000), 'UTC')\nGROUP BY dep\nORDER BY p95_ms DESC\nLIMIT 10\n",
+          "query": "SELECT\n  dep AS dependency,\n  count() AS calls,\n  round(quantile(0.95)(latency_ms), 2) AS p95_ms,\n  round(100.0 * countIf(status='FAILED') / nullIf(count(),0), 2) AS fail_pct\nFROM reports.dependency_calls_v\nWHERE event_time BETWEEN toDateTime(intDiv(${__from:raw}, 1000), 'UTC')\n                    AND toDateTime(intDiv(${__to:raw}, 1000), 'UTC')\nGROUP BY dep\nORDER BY fail_pct DESC, calls DESC\nLIMIT 25",
           "rawQuery": true,
           "refId": "A",
           "round": "0s",
@@ -526,7 +521,7 @@
           "useWindowFuncForMacros": true
         }
       ],
-      "title": "Top Dependencies by p95 Latency (DAG)",
+      "title": "Top dependencies (context)",
       "transformations": [
         {
           "id": "organize",
@@ -537,7 +532,7 @@
           }
         }
       ],
-      "type": "barchart"
+      "type": "table"
     },
     {
       "datasource": {
@@ -582,7 +577,7 @@
             "lastNotNull"
           ],
           "fields": "",
-          "values": false
+          "values": true
         },
         "sort": "desc",
         "tooltip": {
@@ -601,7 +596,7 @@
           "editorMode": "builder",
           "extrapolate": true,
           "format": "table",
-          "formattedQuery": "/* grafana dashboard='SLA + DAG Overview (mongo-gen) — v2 (no value/value)', user=0 */\nWITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(1767495007741, 1000), 'UTC')\n                        AND toDateTime(intDiv(1767498607741, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  final_status AS outcome,\n  count() AS runs\nFROM final\nGROUP BY final_status\nORDER BY runs DESC",
+          "formattedQuery": "/* grafana dashboard='SLA + DAG Overview (mongo-gen) — v2 (no value/value)', user=0 */\nWITH final AS (\n  SELECT\n    run_id,\n    argMax(status, event_time) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at BETWEEN toDateTime(intDiv(1767557069598, 1000), 'UTC')\n                        AND toDateTime(intDiv(1767560669598, 1000), 'UTC')\n  GROUP BY run_id\n)\nSELECT\n  final_status AS outcome,\n  count() AS runs\nFROM final\nGROUP BY final_status\nORDER BY runs DESC",
           "interval": "",
           "intervalFactor": 1,
           "nullifySparse": false,
@@ -618,7 +613,7 @@
     }
   ],
   "preload": false,
-  "refresh": "10s",
+  "refresh": "",
   "schemaVersion": 42,
   "tags": [
     "poc",
@@ -646,5 +641,5 @@
   "timezone": "utc",
   "title": "SLA + DAG Overview (mongo-gen) — v2 (no value/value)",
   "uid": "sla-dag-overview",
-  "version": 8
+  "version": 7
 }
