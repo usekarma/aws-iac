@@ -338,14 +338,16 @@ else
 fi
 
 # ---------------- Install mongo-gen run script ----------------
-if [[ -f "${MONGO_GEN_DIR}/scripts/run.sh" ]]; then
+RUN_SRC="${MONGO_GEN_DIR}/src/mongo_gen/run.sh"
+
+if [[ -f "$RUN_SRC" ]]; then
   install -m 0755 -o root -g root \
-    "${MONGO_GEN_DIR}/scripts/run.sh" \
+    "$RUN_SRC" \
     /usr/local/bin/mongo-gen-run
 
-  echo "[mongo-bootstrap] mongo-gen-run installed at /usr/local/bin/mongo-gen-run"
+  echo "[mongo-bootstrap] mongo-gen-run installed at /usr/local/bin/mongo-gen-run (from $RUN_SRC)"
 else
-  echo "[mongo-bootstrap] WARN: ${MONGO_GEN_DIR}/scripts/run.sh not found; mongo-gen-run not installed" >&2
+  echo "[mongo-bootstrap] WARN: $RUN_SRC not found; mongo-gen-run not installed" >&2
 fi
 
 # ---------------- Exporters (Mongo & Node) ---------------
