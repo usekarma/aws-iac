@@ -1,0 +1,426 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": 30,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "description": "Counts runs by requested time bucket and final status (SUCCESS / FAILED / other). Fixed 6h window to avoid Grafana macro issues.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "format": "time_series",
+          "query": "WITH per_run AS (\n  SELECT\n    run_id,\n    min(requested_at) AS req_at,\n    upper(trim(argMax(status, event_time))) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at >= now() - INTERVAL 6 HOUR\n    AND requested_at <  now()\n  GROUP BY run_id\n)\nSELECT\n  toStartOfInterval(req_at, INTERVAL 5 MINUTE) AS time,\n  count() AS requested,\n  countIf(final_status = 'SUCCESS') AS success,\n  countIf(final_status = 'FAILED')  AS failed,\n  countIf(final_status NOT IN ('SUCCESS','FAILED')) AS other\nFROM per_run\nGROUP BY time\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Runs by Final Outcome (last 6h, 5m buckets)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "description": "Percent of runs that are FAILED or SUCCESS but slower than 30s. Adjust threshold in query.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "mappings": [],
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "adHocFilters": [],
+          "adHocValuesQuery": "",
+          "add_metadata": true,
+          "contextWindowSize": "10",
+          "editorMode": "builder",
+          "extrapolate": true,
+          "format": "table",
+          "formattedQuery": "/* grafana dashboard='SLA Funnel & Dead Ends (Stage Flow)', user=0 */\nWITH per_run AS (\n  SELECT\n    run_id,\n    upper(trim(argMax(status, event_time))) AS final_status,\n    argMax(latency_ms, event_time)          AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at >= now() - INTERVAL 6 HOUR\n    AND requested_at <  now()\n  GROUP BY run_id\n)\nSELECT\n  avg(\n    if(\n      final_status = 'FAILED'\n      OR (final_status = 'SUCCESS' AND latency_ms > 30000),\n      1, 0\n    )\n  ) AS value\nFROM per_run",
+          "interval": "",
+          "intervalFactor": 1,
+          "nullifySparse": false,
+          "query": "WITH per_run AS (\n  SELECT\n    run_id,\n    upper(trim(argMax(status, event_time))) AS final_status,\n    argMax(latency_ms, event_time)          AS latency_ms\n  FROM reports.report_runs_v\n  WHERE requested_at >= now() - INTERVAL 6 HOUR\n    AND requested_at <  now()\n  GROUP BY run_id\n)\nSELECT\n  avg(\n    if(\n      final_status = 'FAILED'\n      OR (final_status = 'SUCCESS' AND latency_ms > 30000),\n      1, 0\n    )\n  ) AS value\nFROM per_run\n",
+          "refId": "A",
+          "round": "0s",
+          "skip_comments": true,
+          "useWindowFuncForMacros": true
+        }
+      ],
+      "title": "SLA Breach Rate (last 6h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "description": "What runs end as (final status). This is your 'dead ends' view if you treat non-SUCCESS as terminal failures/stalls.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 16,
+        "x": 8,
+        "y": 9
+      },
+      "id": 3,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "format": "table",
+          "query": "WITH final AS (\n  SELECT\n    run_id,\n    upper(trim(argMax(status, event_time))) AS final_status\n  FROM reports.report_runs_v\n  WHERE requested_at >= now() - INTERVAL 6 HOUR\n    AND requested_at <  now()\n  GROUP BY run_id\n)\nSELECT\n  final_status AS status,\n  count() AS runs\nFROM final\nGROUP BY final_status\nORDER BY runs DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Dead Ends (Final Status distribution, last 6h)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "description": "Derived flow: prev_status → status per run ordered by event_time. This matches your 'stages between request and completion' mental model.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "format": "table",
+          "query": "WITH events AS (\n  SELECT\n    run_id,\n    event_time,\n    upper(trim(status)) AS stage\n  FROM reports.report_runs_v\n  WHERE requested_at >= now() - INTERVAL 6 HOUR\n    AND requested_at <  now()\n), ordered AS (\n  SELECT\n    run_id,\n    stage,\n    lagInFrame(stage) OVER (PARTITION BY run_id ORDER BY event_time) AS prev_stage\n  FROM events\n)\nSELECT\n  prev_stage AS source_stage,\n  stage      AS target_stage,\n  count()    AS transitions\nFROM ordered\nWHERE prev_stage IS NOT NULL\n  AND prev_stage != ''\n  AND stage != prev_stage\nGROUP BY source_stage, target_stage\nORDER BY transitions DESC\nLIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "Stage Transitions (Top 50 edges, last 6h)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "vertamedia-clickhouse-datasource",
+        "uid": "clickhouse-main"
+      },
+      "description": "If a run doesn't reach SUCCESS, this shows the last stage it was seen in (your 'dead end' staging view).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "format": "table",
+          "query": "WITH per_run AS (\n  SELECT\n    run_id,\n    upper(trim(argMax(status, event_time))) AS last_stage\n  FROM reports.report_runs_v\n  WHERE requested_at >= now() - INTERVAL 6 HOUR\n    AND requested_at <  now()\n  GROUP BY run_id\n)\nSELECT\n  last_stage,\n  count() AS runs\nFROM per_run\nGROUP BY last_stage\nORDER BY runs DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Where runs stop (Last observed stage per run, last 6h)",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "refresh": "",
+  "schemaVersion": 42,
+  "tags": [
+    "sla",
+    "funnel",
+    "stages",
+    "clickhouse"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "timezone": "utc",
+  "title": "SLA Funnel & Dead Ends (Stage Flow)",
+  "uid": "39ea419a-7132-4ffd-85b0-0c4bf5bb77db",
+  "version": 2
+}
