@@ -1,193 +1,105 @@
-# AWS Infrastructure as Code (IaC)
+# AWS infrastructure as code
 
-## Overview
+Reusable Terraform components orchestrated by Terragrunt, with deployment inputs
+and runtime dependency metadata in AWS Systems Manager Parameter Store.
+Part of [Adage](https://github.com/usekarma/adage).
 
-This repository contains reusable **Terraform modules** for deploying AWS infrastructure **dynamically** based on configurations stored in AWS Parameter Store.
+## Repository map
 
-For a complete overview, see [Adage: AWS Deployment Framework](https://github.com/usekarma/adage).
+- `components/`: VPC, ECS, ClickHouse/MongoDB/Redpanda stack, Cognito, DNS,
+  S3, Lambda, serverless API/site, Grafana and other modules. Some directories
+  (e.g. rds-postgres, eks-cluster, sqs-queue) contain documentation only.
+- `terragrunt.hcl`: per-account S3 state, DynamoDB locking, component/nickname inputs.
+- `scripts/deploy.sh`: existing single-component runner; defaults to **apply**.
+- `AGENTS.md`, `specs/`, `docs/`: authority boundaries, work specs and runbooks.
+- `scripts/verify.sh`, `tests/`, `.github/workflows/verify.yml`: non-destructive gates.
 
----
+[`aws-config`](https://github.com/usekarma/aws-config) owns environment bindings
+and `iac/<environment>/<component>/<nickname>/config.json`. Its publishers write
+SSM `${IAC_PREFIX:-/iac}/environment` and `/<component>/<nickname>/config`.
+Terraform reads those inputs and publishes `/runtime` dependency metadata.
+Config existence is a prerequisite, **not** approval or enforcement of Git review.
+The current runner does not enforce the binding's strict/branch/drift metadata.
 
-### Key Features
+## Safe change workflow
 
-- **Decouples infrastructure from deployment** – Terraform only deploys what’s pre-approved in the config repo.
-- **No hardcoded environments** – Everything is dynamically resolved at runtime.
-- **Uses AWS Parameter Store for configurations** – Ensures deployments are controlled via Git.
-- **Supports dynamic runtime resolution** – No Terraform state sharing required across modules.
-- **Configurable prefix (`/iac`)** – Set `IAC_PREFIX` to change Parameter Store paths across the entire stack.
-- **Integrates with `aws-config` and `aws-lambda`** – Enables a fully configuration-driven AWS deployment model.
+SPEC → inspect → implement → verify → plan → review plan → **human approval** →
+apply/destroy → postflight verification → operational observation.
 
----
+Read [AGENTS.md](AGENTS.md) and [the workflow](docs/agent-workflow.md). Copy
+[specs/TEMPLATE.md](specs/TEMPLATE.md) for substantive infrastructure work; small
+documentation changes can record scope and verification in a PR description.
+Keep production/non-production changes separate. Never manually alter state as cleanup.
 
-## Repository Structure
-
-```
-aws-iac/
-├── components/
-│   ├── vpc/               # Reusable VPC module
-│   ├── aurora-postgres/   # Reusable Aurora RDS module
-│   └── ...
-├── scripts/
-│   └── deploy.sh          # Terragrunt-based wrapper for deploying individual components
-├── terragrunt.hcl         # Root configuration for remote state + inputs
-├── README.md
-```
-
----
-
-## Developer Setup: AWS CLI + Prompt Customization
-
-This framework uses named AWS CLI profiles to authenticate into different AWS accounts.
-
-To configure AWS SSO and optionally customize your shell prompt for safety and visibility, see:
-
-📄 [`setup/bash-aws-profile-prompt.md`](https://github.com/usekarma/adage/blob/main/setup/bash-aws-profile-prompt.md)
-
----
-
-## How It Works
-
-### 1. Configuration Must Already Exist
-
-Terraform will not deploy anything unless configuration has already been published to AWS Parameter Store.
-
-All configuration is authored and version-controlled in the [`aws-config`](https://github.com/usekarma/aws-config) repository and published using approved scripts.
-
-For example, to deploy a VPC with the nickname `main-vpc`, the following must exist:
-
-```
-/iac/vpc/main-vpc/config      # Deployment input (set manually)
-/iac/vpc/main-vpc/runtime     # Deployment output (written by Terraform)
-```
-
-You can override the prefix (`/iac`) using `IAC_PREFIX`:
+Prerequisites: Bash, Git, Python 3.12+, ShellCheck 0.11.0, Terraform 1.15.2,
+Terragrunt 0.83.2. Verification requires no AWS credentials:
 
 ```bash
-IAC_PREFIX=/karma AWS_PROFILE=dev ./scripts/deploy.sh vpc main-vpc
+./scripts/verify.sh
+./scripts/verify.sh --terraform clickhouse
 ```
 
----
+The first command checks syntax, changed-file formatting/lint, JSON, credential
+patterns and mocked safety tests. The second also downloads providers and validates
+that module in a disposable copy with its backend disabled. Network/provider failures
+are reported, never treated as success. Existing unchanged Terraform formatting debt
+is reported separately; new edits must meet the checks.
 
-### 2. Deployment Uses `nickname` + `component`
+## Target and plan
 
-Each deployable instance is referenced by its:
-
-- **component name** (e.g., `vpc`, `aurora-postgres`)
-- **nickname** (e.g., `main-vpc`, `default-db`)
-
-The deploy wrapper passes these values into Terragrunt, which injects them as Terraform variables (`var.nickname`, `var.iac_prefix`, etc.).
-
----
-
-## Example: Deploying a VPC
-
-### 1. Define Configuration in `aws-config`
-
-```json
-{
-  "vpc_cidr": "10.0.0.0/16",
-  "enable_dns_support": true,
-  "private_subnet_cidrs": ["10.0.1.0/24", "10.0.2.0/24"]
-}
-```
-
-Published to:
-
-```
-/iac/vpc/main-vpc/config
-```
-
----
-
-### 2. Deploy the Component
+Confirm these values independently; account/profile names are local conventions.
+Do not infer environment from nickname: ClickHouse `usekarma-dev` is configured in prod.
 
 ```bash
-AWS_PROFILE=dev ./scripts/deploy.sh vpc main-vpc
+export AWS_PROFILE=prod-karma
+export AWS_REGION=us-east-1
+export EXPECTED_AWS_ACCOUNT='<confirmed-12-digit-account-id>'
+export EXPECTED_ENVIRONMENT=prod
+export EXPECTED_BINDING=usekarma-dev-prod
+./scripts/preflight.sh
+./scripts/plan.sh clickhouse usekarma-dev
+# Prepare a teardown proposal only:
+./scripts/plan.sh clickhouse usekarma-dev --destroy
 ```
 
-The script:
+Preflight checks STS identity and exact SSM binding. Planning requires an existing
+state bucket/lock table and disables Terragrunt backend bootstrap/updates. Plans use
+`-lock=false` with read-only IAM; avoid concurrent deployments and regenerate stale
+plans. The private `review.tfplan` lives inside the Terragrunt cache below
+`.terragrunt-work/<account-id>/<component>/<nickname>/`. Inspect it there with
+`terraform show review.tfplan`; record its `sha256sum`. Plans can contain secrets.
+Never commit or publish them or their JSON/text output.
 
-- Sets up the working directory
-- Injects `nickname`, `iac_prefix`, and other Terragrunt variables
-- Applies the corresponding component under `components/vpc`
+## Approved execution only
 
----
+The existing apply/destroy CLI remains available, but now requires verified expected
+target variables and `AWS_MUTATION_APPROVED=1`, set by the operator **after explicit
+human approval**. The acknowledgement cannot authorize an agent. `--auto-approve`
+is rejected for planning/validation. Apply/destroy retain native confirmation unless
+the approved operator explicitly selects that flag. The runner regenerates a plan on
+apply/destroy: review it again at the native prompt, and stop if it differs from the
+approved scope. Prefer executing the exact approved saved plan from its cache through
+Terraform after rerunning preflight; this is a separately approved mutation, not an
+autonomous agent command. Saved plans execute without an additional confirmation prompt.
 
-### 3. Runtime Metadata Is Published
+Backend bootstrapping with `scripts/bootstrap/remote_state.sh` also requires approval
+and preflight. It can create/update S3/DynamoDB and retention rules. Neither verification
+nor planning bootstraps a backend. Approval must cover all resource/data consequences.
 
-After deployment, Terraform writes runtime metadata to:
+## Teardown and postflight
 
-```
-/iac/vpc/main-vpc/runtime
-```
+Read [the destructive-operation policy](docs/destructive-operations.md) and
+[the ClickHouse cleanup example](specs/clickhouse-cleanup.example.md). ClickHouse
+owns MongoDB/Redpanda and data EBS volumes too. `ch-down.sh` additionally tears down
+shared VPC/ECS; do not use it for component-only cleanup. `scripts/clean.sh` removes
+local artifacts including local state files; do not run it casually.
 
-This includes:
+`./scripts/inventory.sh` performs read-only account-wide EC2/EBS, ALB, NAT, EIP,
+snapshot and AMI inventory. Compare exact preflight IDs with the reviewed plan,
+prove preserved objects survive, and investigate leftovers without deleting them.
+Check ECS, DNS, SSM and S3 backups as relevant; observe service health and cost after
+approved changes. See the workflow for operational readiness and known limitations.
 
-- VPC ID
-- Subnet IDs
-- Tags and routing information
-
----
-
-## Dynamic Dependency Resolution
-
-All components publish their runtime state to Parameter Store.  
-Other components can consume this without shared Terraform state.
-
-Example:
-
-```hcl
-data "aws_ssm_parameter" "vpc_runtime" {
-  name = "${var.iac_prefix}/vpc/main-vpc/runtime"
-}
-
-locals {
-  vpc_details = jsondecode(data.aws_ssm_parameter.vpc_runtime.value)
-}
-```
-
-This allows for completely dynamic and decoupled dependency graphs.
-
----
-
-## Configuration Prefix: `IAC_PREFIX`
-
-The prefix used in Parameter Store defaults to:
-
-```
-/iac
-```
-
-You can override this globally for any deploy:
-
-```bash
-IAC_PREFIX=/karma AWS_PROFILE=dev ./scripts/deploy.sh aurora-postgres default-db
-```
-
-Each Terraform module must accept `iac_prefix` as an input and use it in any Parameter Store lookups.
-
----
-
-## Security and Governance
-
-- **Prevents unauthorized changes** – Terraform fails if no config exists in Parameter Store
-- **Enforces Git review** – All configuration is stored and approved via `aws-config`
-- **Locks down environments** – IAM permissions can restrict Parameter Store access
-- **Supports Secrets Manager** – Use for secure values alongside non-secret config
-
----
-
-## Project Background
-
-This repository is part of a broader open-source deployment framework focused on configuration-driven infrastructure in AWS.
-
-It is maintained as part of the [Adage](https://github.com/usekarma/adage) project and supports scalable, multi-environment, multi-account architecture patterns.
-
----
-
-## Next Steps
-
-1. Fork this repo and define your own components under `components/`
-2. Use [`aws-config`](https://github.com/usekarma/aws-config) to publish deployment inputs
-3. Use `scripts/deploy.sh` to deploy components safely
-4. Inject `IAC_PREFIX` as needed for alternate frameworks or naming schemes
+CI runs the same local gate on PRs/pushes with no AWS credentials or deployment steps.
+Require its status via GitHub branch protection separately. Do not interpret green
+syntax/tests as a valid live plan or production readiness.

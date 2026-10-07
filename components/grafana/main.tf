@@ -8,9 +8,9 @@
 #############################################
 
 locals {
-  cfg          = try(local.config, {})
-  nickname     = try(local.cfg.nickname, "default")
-  iac_prefix   = trim(try(local.cfg.iac_prefix, "/iac"), "/")
+  cfg        = try(local.config, {})
+  nickname   = try(local.cfg.nickname, "default")
+  iac_prefix = trim(try(local.cfg.iac_prefix, "/iac"), "/")
 
   # Runtime inputs
   vpc_runtime_path        = try(local.cfg.vpc_runtime_path, "/${local.iac_prefix}/vpc/${local.nickname}/runtime")
@@ -31,22 +31,22 @@ locals {
   default_sg_id      = jsondecode(nonsensitive(data.aws_ssm_parameter.vpc_runtime.value)).default_sg_id
 
   # ALB + TLS
-  domain_name     = try(local.cfg.domain_name, "grafana.example.com")   # e.g., grafana.usekarma.dev
-  hosted_zone_id  = try(local.cfg.hosted_zone_id, null)                 # if R53 record desired
-  acm_cert_arn    = try(local.cfg.acm_cert_arn, null)                   # required for HTTPS
-  create_dns      = try(local.cfg.create_dns_record, true)
+  domain_name    = try(local.cfg.domain_name, "grafana.example.com") # e.g., grafana.usekarma.dev
+  hosted_zone_id = try(local.cfg.hosted_zone_id, null)               # if R53 record desired
+  acm_cert_arn   = try(local.cfg.acm_cert_arn, null)                 # required for HTTPS
+  create_dns     = try(local.cfg.create_dns_record, true)
 
   # Ports
-  grafana_port    = try(local.cfg.grafana_port, 3000)
-  connect_port    = try(local.cfg.connect_port, 8083)
+  grafana_port = try(local.cfg.grafana_port, 3000)
+  connect_port = try(local.cfg.connect_port, 8083)
 
   # Kafka Connect bits (MSK + MongoDB CDC)
   # CH runtime includes msk_bootstrap_sasl_iam; we’ll use that
-  connect_group_id  = try(local.cfg.connect_group_id, "${local.nickname}-connect")
-  mongo_uri         = try(local.cfg.mongo_uri, null)           # e.g. "mongodb://user:pass@host:27017/?replicaSet=rs0"
+  connect_group_id      = try(local.cfg.connect_group_id, "${local.nickname}-connect")
+  mongo_uri             = try(local.cfg.mongo_uri, null) # e.g. "mongodb://user:pass@host:27017/?replicaSet=rs0"
   mongo_connector_class = try(local.cfg.mongo_connector_class, "io.debezium.connector.mongodb.MongoDbConnector")
-  connector_name    = try(local.cfg.connector_name, "mongo-cdc")
-  connector_config  = try(local.cfg.connector_config, {})      # free-form map merged into JSON
+  connector_name        = try(local.cfg.connector_name, "mongo-cdc")
+  connector_config      = try(local.cfg.connector_config, {}) # free-form map merged into JSON
 
   # ClickHouse runtime (needed for Grafana datasource + cross-SG)
   ch_runtime = jsondecode(nonsensitive(data.aws_ssm_parameter.ch_runtime.value))
@@ -75,9 +75,18 @@ data "aws_ssm_parameter" "ch_runtime" {
 data "aws_ami" "al2023" {
   owners      = [local.ami_owner]
   most_recent = true
-  filter { name = "name"; values = ["al2023-ami-*-x86_64"] }
-  filter { name = "architecture"; values = ["x86_64"] }
-  filter { name = "root-device-type"; values = ["ebs"] }
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+  filter {
+    name   = "root-device-type"
+    values = ["ebs"]
+  }
 }
 
 ############################
@@ -86,7 +95,10 @@ data "aws_ami" "al2023" {
 data "aws_iam_policy_document" "assume" {
   statement {
     actions = ["sts:AssumeRole"]
-    principals { type = "Service"; identifiers = ["ec2.amazonaws.com"] }
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
   }
 }
 resource "aws_iam_role" "this" {
@@ -101,7 +113,7 @@ resource "aws_iam_role_policy_attachment" "ssm_core" {
 # Allow Connect to talk to MSK (IAM auth) and basic describe
 data "aws_iam_policy_document" "msk_client" {
   statement {
-    actions   = ["kafka-cluster:Connect","kafka:GetBootstrapBrokers","kafka:DescribeCluster"]
+    actions   = ["kafka-cluster:Connect", "kafka:GetBootstrapBrokers", "kafka:DescribeCluster"]
     resources = ["*"]
   }
 }
@@ -140,15 +152,15 @@ resource "aws_security_group" "alb" {
     self             = null
   }]
   egress = [{
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "all egress"
-    from_port = 0
-    to_port = 0
+    cidr_blocks      = ["0.0.0.0/0"]
+    description      = "all egress"
+    from_port        = 0
+    to_port          = 0
     ipv6_cidr_blocks = null
-    prefix_list_ids = null
-    protocol = "-1"
-    security_groups = null
-    self = null
+    prefix_list_ids  = null
+    protocol         = "-1"
+    security_groups  = null
+    self             = null
   }]
   tags = merge(local.tags, { Role = "alb", Name = "${local.nickname}-sg-alb" })
 }
@@ -191,7 +203,7 @@ resource "aws_vpc_security_group_ingress_rule" "alb_to_connect" {
 
 # Cross-component SG: allow this app SG to query ClickHouse HTTP (8123)
 resource "aws_vpc_security_group_ingress_rule" "app_to_clickhouse_8123" {
-  security_group_id            = local.ch_runtime.security_group_id   # the CH SG
+  security_group_id            = local.ch_runtime.security_group_id # the CH SG
   referenced_security_group_id = aws_security_group.app.id
   ip_protocol                  = "tcp"
   from_port                    = try(local.ch_runtime.http_port, 8123)
@@ -201,18 +213,24 @@ resource "aws_vpc_security_group_ingress_rule" "app_to_clickhouse_8123" {
 
 # Optional: add this app SG to MSK SG (9098) using Name tag lookup
 data "aws_security_group" "msk" {
-  count  = (try(local.ch_runtime.msk_enabled, false) && local.discover_msk_sg_by_name) ? 1 : 0
-  filter { name = "vpc-id"; values = [local.vpc_id] }
-  filter { name = "tag:Name"; values = [local.msk_sg_name] }
+  count = (try(local.ch_runtime.msk_enabled, false) && local.discover_msk_sg_by_name) ? 1 : 0
+  filter {
+    name   = "vpc-id"
+    values = [local.vpc_id]
+  }
+  filter {
+    name   = "tag:Name"
+    values = [local.msk_sg_name]
+  }
 }
 resource "aws_vpc_security_group_ingress_rule" "app_to_msk_9098" {
-  count                       = (try(local.ch_runtime.msk_enabled, false) && local.discover_msk_sg_by_name) ? 1 : 0
-  security_group_id           = data.aws_security_group.msk[0].id
-  referenced_security_group_id= aws_security_group.app.id
-  ip_protocol                 = "tcp"
-  from_port                   = 9098
-  to_port                     = 9098
-  description                 = "Kafka Connect -> MSK brokers (SASL/IAM)"
+  count                        = (try(local.ch_runtime.msk_enabled, false) && local.discover_msk_sg_by_name) ? 1 : 0
+  security_group_id            = data.aws_security_group.msk[0].id
+  referenced_security_group_id = aws_security_group.app.id
+  ip_protocol                  = "tcp"
+  from_port                    = 9098
+  to_port                      = 9098
+  description                  = "Kafka Connect -> MSK brokers (SASL/IAM)"
 }
 
 ############################
@@ -236,10 +254,10 @@ resource "aws_instance" "app" {
   }
 
   user_data = base64encode(templatefile("${path.module}/userdata.sh.tmpl", {
-    GRAFANA_PORT     = local.grafana_port
-    CONNECT_PORT     = local.connect_port
-    CH_HTTP_URL      = "http://${local.ch_runtime.private_ip}:${try(local.ch_runtime.http_port,8123)}"
-    CH_NAME          = "clickhouse"
+    GRAFANA_PORT = local.grafana_port
+    CONNECT_PORT = local.connect_port
+    CH_HTTP_URL  = "http://${local.ch_runtime.private_ip}:${try(local.ch_runtime.http_port, 8123)}"
+    CH_NAME      = "clickhouse"
     # MSK bootstrap for sink/source connectors if needed
     MSK_BOOTSTRAP    = try(local.ch_runtime.msk_bootstrap_sasl_iam, "")
     CONNECT_GROUP_ID = local.connect_group_id
@@ -329,8 +347,15 @@ resource "aws_lb_listener" "https" {
 resource "aws_lb_listener_rule" "connect" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 10
-  action { type = "forward"; target_group_arn = aws_lb_target_group.connect.arn }
-  condition { path_pattern { values = ["/connect/*"] } }
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.connect.arn
+  }
+  condition {
+    path_pattern {
+      values = ["/connect/*"]
+    }
+  }
 }
 
 # Optional DNS record
@@ -350,8 +375,8 @@ resource "aws_route53_record" "dns" {
 # Runtime SSM output
 ############################
 resource "aws_ssm_parameter" "runtime" {
-  name  = local.runtime_path
-  type  = "String"
+  name = local.runtime_path
+  type = "String"
   value = jsonencode({
     instance_id       = aws_instance.app.id,
     instance_sg_id    = aws_security_group.app.id,
