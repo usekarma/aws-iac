@@ -79,6 +79,12 @@ fi
 # Identity, environment and target must be independently reviewed.
 [[ "$COMPONENT" =~ ^[a-z0-9-]+$ && "$NICKNAME" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid component/nickname" >&2; exit 1; }
 [[ -f "components/$COMPONENT/header.tf" ]] || { echo "No deployable component: $COMPONENT" >&2; exit 1; }
+python3 - "$COMPONENT" <<'PY_STATUS'
+import json, pathlib, sys
+status = json.loads(pathlib.Path("components/status.json").read_text()).get(sys.argv[1], {})
+if status.get("status") == "incomplete":
+    sys.exit("Blocked incomplete component: " + status["reason"])
+PY_STATUS
 if [[ "$ACTION" == "apply" || "$ACTION" == "destroy" ]]; then
   [[ "${AWS_MUTATION_APPROVED:-}" == "1" ]] || { echo "Explicit human approval required; see AGENTS.md" >&2; exit 1; }
 elif [[ "${#EXTRA_ARGS[@]}" -gt 0 ]]; then

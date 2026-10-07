@@ -29,6 +29,7 @@ class ShellSafetyTests(unittest.TestCase):
                 'terraform { backend "s3" {} }'
             )
             shutil.copy(ROOT / "terragrunt.hcl", self.work / "terragrunt.hcl")
+            shutil.copy(ROOT / "components/status.json", self.work / "components/status.json")
         (self.work / "bin").mkdir()
         self.log = self.work / "calls.jsonl"
         fake = (
@@ -126,6 +127,14 @@ if Path(sys.argv[0]).name == "aws":
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Agent mode", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_incomplete_email_component_blocked_before_cloud(self):
+        (self.work / "components/email-forwarding").mkdir()
+        (self.work / "components/email-forwarding/header.tf").write_text("terraform {}")
+        result = self.call("deploy.sh", "--plan", "email-forwarding", "fixture", AGENT_MODE="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("incomplete component", result.stderr)
         self.assertEqual(self.calls(), [])
 
     def test_agent_mode_validate_allowed(self):

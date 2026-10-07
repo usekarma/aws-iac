@@ -258,7 +258,7 @@ resource "aws_instance" "app" {
     # MSK bootstrap for sink/source connectors if needed
     MSK_BOOTSTRAP    = try(local.ch_runtime.msk_bootstrap_sasl_iam, "")
     CONNECT_GROUP_ID = local.connect_group_id
-    MONGO_URI        = coalesce(local.mongo_uri, "")
+    MONGO_URI        = local.mongo_uri == null ? "" : local.mongo_uri
     CONNECTOR_NAME   = local.connector_name
     CONNECTOR_JSON   = jsonencode(local.connector_config)
   }))

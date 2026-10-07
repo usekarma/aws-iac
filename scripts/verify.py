@@ -79,7 +79,14 @@ def provider_validate(component):
     )
     if not re.fullmatch(r"[a-z0-9-]+", component):
         raise ValueError("Invalid component")
+    status = (
+        load_json(ROOT / "components/status.json")
+        if (ROOT / "components/status.json").exists()
+        else {}
+    )
     for module in modules:
+        if status.get(module.name, {}).get("status") == "incomplete":
+            raise ValueError("Incomplete component is blocked: " + module.name)
         if not module.is_dir() or not list(module.glob("*.tf")):
             if component == "all":
                 continue
@@ -196,6 +203,22 @@ def main():
             }
         ):
             try:
+                status = load_json(ROOT / "components/status.json").get(component, {})
+                if status.get("status") == "incomplete":
+                    # Quarantined prototypes must stay semantically unchanged until valid implementation/review.
+                    import hcl2
+
+                    for path in (ROOT / "components" / component).glob("*.tf"):
+                        old = subprocess.check_output(
+                            ["git", "show", f"{base}:{path.relative_to(ROOT)}"], text=True
+                        )
+                        if hcl2.loads(old) != hcl2.loads(path.read_text()):
+                            raise ValueError(
+                                "Incomplete component changed; implement and validate before promotion: "
+                                + component
+                            )
+                    print("Verified unchanged quarantined prototype: " + component)
+                    continue
                 provider_validate(component)
             except subprocess.CalledProcessError:
                 failed.append(component)

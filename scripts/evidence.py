@@ -177,6 +177,7 @@ def generate(plan_path, context_path, output, saved_plan=None):
         raise ValueError("Use an empty/new private evidence directory")
     os.umask(0o077)
     out.mkdir(parents=True, exist_ok=True, mode=0o700)
+    out.chmod(0o700)
     (out / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
     lines = [
         "# Infrastructure change evidence",
