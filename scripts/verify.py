@@ -188,7 +188,7 @@ def main():
 
         check(base)
     run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"])
-    run(["git", "diff", "--check"])
+    run(["git", "diff", "--check", base])
     if args.terraform:
         if not (ROOT / "components").is_dir():
             raise ValueError("--terraform is available only in aws-iac")
