@@ -33,7 +33,7 @@ locals {
   vpc_id                    = try(local.vpc.vpc_id, null)
   private_subnet_ids        = try(local.vpc.private_subnet_ids, null)
   public_subnet_ids         = try(local.vpc.public_subnet_ids, null)
-  default_security_group_id = try(local.vpc.default_security_group_id, null)
+  default_security_group_id = try(local.vpc.default_sg_id, null)
   service_security_groups   = local.explicit_sgs != null && length(local.explicit_sgs) > 0 ? local.explicit_sgs : [local.default_security_group_id]
 }
 
@@ -196,4 +196,13 @@ resource "aws_ssm_parameter" "runtime" {
   })
 
   tags = local.tags
+}
+
+# Runtime dependencies follow the same SSM component/nickname model as other modules.
+data "aws_ssm_parameter" "cluster_runtime" {
+  name = "${var.iac_prefix}/ecs-cluster/${local.cluster_nickname}/runtime"
+}
+
+data "aws_ssm_parameter" "vpc_runtime" {
+  name = "${var.iac_prefix}/vpc/${local.vpc_nickname}/runtime"
 }

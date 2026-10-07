@@ -187,6 +187,7 @@ def main():
             raise ValueError("--terraform is available only in aws-iac")
         provider_validate(args.terraform)
     if args.terraform_changed:
+        failed = []
         for component in sorted(
             {
                 Path(name).parts[1]
@@ -194,7 +195,12 @@ def main():
                 if name.startswith("components/") and name.endswith(".tf")
             }
         ):
-            provider_validate(component)
+            try:
+                provider_validate(component)
+            except subprocess.CalledProcessError:
+                failed.append(component)
+        if failed:
+            raise ValueError("Provider validation failed for: " + ", ".join(failed))
     print("Repository verification passed. No AWS calls or Terraform state writes performed.")
 
 
