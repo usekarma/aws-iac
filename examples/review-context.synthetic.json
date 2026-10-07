@@ -1,0 +1,31 @@
+{
+  "objective": "Evaluate a synthetic ClickHouse teardown without executing AWS changes",
+  "repositories": [
+    "aws-iac",
+    "aws-config"
+  ],
+  "files": [
+    "components/clickhouse/main.tf",
+    "iac/prod/clickhouse/usekarma-dev/config.json"
+  ],
+  "account": "123456789012",
+  "profile": "synthetic-only",
+  "region": "us-east-1",
+  "environment": "prod",
+  "binding": "usekarma-dev-prod",
+  "prefix": "/iac",
+  "component": "clickhouse",
+  "nickname": "usekarma-dev",
+  "configuration_changes": "None; investigate data persistence before any proposal",
+  "validation_results": {
+    "offline": "Demo must run make verify separately; fixture is not a live plan"
+  },
+  "blast_radius": "Illustrative ClickHouse instance and data volume; shared backup bucket preserved in fixture",
+  "recovery": "Require fresh backup, restore evidence, exact volume IDs and explicit destructive approval",
+  "post_change_checks": [
+    "Verify exact instance and EBS IDs absent only after approved execution",
+    "Verify backup bucket and snapshots survive",
+    "Inspect AMIs, detached EBS, NAT, ALB and EIP leftovers"
+  ],
+  "synthetic": true
+}

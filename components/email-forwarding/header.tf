@@ -52,6 +52,6 @@ variable "nickname" {
 }
 
 variable "iac_prefix" {
-  type        = string
-  default     = "/iac"
+  type    = string
+  default = "/iac"
 }

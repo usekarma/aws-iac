@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+[[ "${AGENT_MODE:-0}" == "0" ]] || { echo "Agent mode blocks image publication" >&2; exit 1; }
 # Build and push the clickhouse-kconnect-jmx-exporter image to ECR
 
 set -euo pipefail

@@ -16,9 +16,6 @@ locals {
   vpc_runtime_path        = try(local.cfg.vpc_runtime_path, "/${local.iac_prefix}/vpc/${local.nickname}/runtime")
   clickhouse_runtime_path = try(local.cfg.clickhouse_runtime_path, "/${local.iac_prefix}/clickhouse/${local.nickname}/runtime")
 
-  # Runtime output
-  runtime_path = try(local.runtime_path, "/${local.iac_prefix}/grafana-connect/${local.nickname}/runtime")
-
   # EC2 instance
   instance_type = try(local.cfg.instance_type, "t3.large")
   ami_owner     = "137112412989" # AL2023

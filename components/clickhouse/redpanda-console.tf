@@ -23,24 +23,24 @@ resource "aws_security_group" "redpanda_console" {
 }
 
 resource "aws_security_group_rule" "redpanda_console_from_alb" {
-  count                   = local.enable_redpanda ? 1 : 0
-  type                    = "ingress"
-  protocol                = "tcp"
-  from_port               = 8080
-  to_port                 = 8080
-  security_group_id       = aws_security_group.redpanda_console[0].id
+  count                    = local.enable_redpanda ? 1 : 0
+  type                     = "ingress"
+  protocol                 = "tcp"
+  from_port                = 8080
+  to_port                  = 8080
+  security_group_id        = aws_security_group.redpanda_console[0].id
   source_security_group_id = aws_security_group.alb.id
 }
 
 resource "aws_security_group_rule" "redpanda_console_egress_all" {
-  count            = local.enable_redpanda ? 1 : 0
-  type             = "egress"
-  from_port        = 0
-  to_port          = 0
-  protocol         = "-1"
+  count             = local.enable_redpanda ? 1 : 0
+  type              = "egress"
+  from_port         = 0
+  to_port           = 0
+  protocol          = "-1"
   security_group_id = aws_security_group.redpanda_console[0].id
-  cidr_blocks      = ["0.0.0.0/0"]
-  ipv6_cidr_blocks = ["::/0"]
+  cidr_blocks       = ["0.0.0.0/0"]
+  ipv6_cidr_blocks  = ["::/0"]
 }
 
 data "aws_iam_policy_document" "redpanda_console_task_assume" {
@@ -75,7 +75,7 @@ resource "aws_cloudwatch_log_group" "redpanda_console" {
 }
 
 resource "aws_lb_target_group" "redpanda_console" {
-  count      = local.enable_redpanda ? 1 : 0
+  count       = local.enable_redpanda ? 1 : 0
   name_prefix = "rpc-"
   port        = 8080
   protocol    = "HTTP"
@@ -106,34 +106,34 @@ resource "aws_ecs_task_definition" "redpanda_console" {
 
   container_definitions = jsonencode([
     {
-      "name": "redpanda-console",
-      "image": local.redpanda_console_image,
-      "essential": true,
-      "portMappings": [
-        { "containerPort": 8080, "hostPort": 8080, "protocol": "tcp" }
+      "name" : "redpanda-console",
+      "image" : local.redpanda_console_image,
+      "essential" : true,
+      "portMappings" : [
+        { "containerPort" : 8080, "hostPort" : 8080, "protocol" : "tcp" }
       ],
-      "environment": [
+      "environment" : [
         # -------- Core: broker connectivity --------
-        { "name": "KAFKA_BROKERS", "value": local.redpanda_brokers },
+        { "name" : "KAFKA_BROKERS", "value" : local.redpanda_brokers },
 
         # -------- Disable ALL Console-side auth (no login screen) --------
-        { "name": "AUTHENTICATION_BASIC_ENABLED", "value": "false" },
-        { "name": "AUTHENTICATION_OIDC_ENABLED",  "value": "false" },
+        { "name" : "AUTHENTICATION_BASIC_ENABLED", "value" : "false" },
+        { "name" : "AUTHENTICATION_OIDC_ENABLED", "value" : "false" },
 
         # -------- Connect UI (optional, keep if you want it) --------
-        { "name": "CONNECT_ENABLED",            "value": "true" },
-        { "name": "CONNECT_CLUSTERS_0_NAME",    "value": "connect-cluster" },
-        { "name": "CONNECT_CLUSTERS_0_URL",     "value": local.kconnect_url },
+        { "name" : "CONNECT_ENABLED", "value" : "true" },
+        { "name" : "CONNECT_CLUSTERS_0_NAME", "value" : "connect-cluster" },
+        { "name" : "CONNECT_CLUSTERS_0_URL", "value" : local.kconnect_url },
 
         # Optional: schema registry
-        { "name": "SCHEMAREGISTRY_ENABLED", "value": "false" }
+        { "name" : "SCHEMAREGISTRY_ENABLED", "value" : "false" }
       ],
-      "logConfiguration": {
-        "logDriver": "awslogs",
-        "options": {
-          "awslogs-group": aws_cloudwatch_log_group.redpanda_console[0].name,
-          "awslogs-region": data.aws_region.current.id,
-          "awslogs-stream-prefix": "ecs"
+      "logConfiguration" : {
+        "logDriver" : "awslogs",
+        "options" : {
+          "awslogs-group" : aws_cloudwatch_log_group.redpanda_console[0].name,
+          "awslogs-region" : data.aws_region.current.id,
+          "awslogs-stream-prefix" : "ecs"
         }
       }
     }
@@ -156,8 +156,8 @@ resource "aws_ecs_service" "redpanda_console" {
   platform_version = local.redpanda_console_platform_version
 
   network_configuration {
-    subnets         = local.vpc.private_subnet_ids
-    security_groups = [aws_security_group.redpanda_console[0].id, local.vpc_sg_id]
+    subnets          = local.vpc.private_subnet_ids
+    security_groups  = [aws_security_group.redpanda_console[0].id, local.vpc_sg_id]
     assign_public_ip = local.redpanda_console_assign_public_ip
   }
 

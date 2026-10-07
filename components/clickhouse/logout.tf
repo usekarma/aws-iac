@@ -15,7 +15,7 @@ locals {
   logout_repo = try(local.config.logout_repo, "logout-service")
 
   # Optional version override (default latest)
-  logout_tag  = try(local.config.logout_tag, "latest")
+  logout_tag = try(local.config.logout_tag, "latest")
 
   # Fallback: dynamically constructed ECR image
   logout_fallback_image = format(

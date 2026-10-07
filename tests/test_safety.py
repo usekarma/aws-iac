@@ -1,4 +1,5 @@
 """Behavioral tests of approval/identity boundaries, with no AWS connectivity."""
+
 import importlib.util
 import json
 import os
@@ -12,6 +13,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
+
 class ShellSafetyTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -19,14 +21,19 @@ class ShellSafetyTests(unittest.TestCase):
         self.work = Path(self.tmp.name)
         # Isolate all command-created artifacts from the real repository.
         import shutil
+
         shutil.copytree(ROOT / "scripts", self.work / "scripts")
         if (ROOT / "components").exists():
             (self.work / "components/clickhouse").mkdir(parents=True)
-            (self.work / "components/clickhouse/header.tf").write_text('terraform { backend "s3" {} }')
+            (self.work / "components/clickhouse/header.tf").write_text(
+                'terraform { backend "s3" {} }'
+            )
             shutil.copy(ROOT / "terragrunt.hcl", self.work / "terragrunt.hcl")
         (self.work / "bin").mkdir()
         self.log = self.work / "calls.jsonl"
-        fake = "#!/usr/bin/env python3\n" + """
+        fake = (
+            "#!/usr/bin/env python3\n"
+            + """
 import json, os, sys
 from pathlib import Path
 with open(os.environ["MOCK_LOG"], "a") as log:
@@ -39,22 +46,92 @@ if Path(sys.argv[0]).name == "aws":
     elif "head-bucket" in sys.argv and os.environ.get("MOCK_BACKEND_MISSING"):
         sys.exit(1)
 """
+        )
         for name in ("aws", "terragrunt"):
             path = self.work / "bin" / name
             path.write_text(fake)
             path.chmod(0o755)
-        self.env = {k: v for k, v in os.environ.items() if not k.startswith(("AWS_", "TG_", "EXPECTED_"))}
-        self.env.update(PATH=str(self.work / "bin") + os.pathsep + os.environ["PATH"],
-                        MOCK_LOG=str(self.log), AWS_PROFILE="prod-karma", AWS_REGION="us-east-1",
-                        EXPECTED_AWS_ACCOUNT="123456789012", EXPECTED_ENVIRONMENT="prod",
-                        EXPECTED_BINDING="usekarma-dev-prod")
+        self.env = {
+            k: v for k, v in os.environ.items() if not k.startswith(("AWS_", "TG_", "EXPECTED_"))
+        }
+        self.env.update(
+            PATH=str(self.work / "bin") + os.pathsep + os.environ["PATH"],
+            MOCK_LOG=str(self.log),
+            AWS_PROFILE="prod-karma",
+            AWS_REGION="us-east-1",
+            EXPECTED_AWS_ACCOUNT="123456789012",
+            EXPECTED_ENVIRONMENT="prod",
+            EXPECTED_BINDING="usekarma-dev-prod",
+        )
 
     def call(self, script, *args, **env):
-        return subprocess.run(["bash", str(self.work / "scripts" / script), *args],
-                              env=self.env | env, capture_output=True, text=True)
+        return subprocess.run(
+            ["bash", str(self.work / "scripts" / script), *args],
+            env=self.env | env,
+            capture_output=True,
+            text=True,
+        )
 
     def calls(self):
-        return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
+        return (
+            [json.loads(line) for line in self.log.read_text().splitlines()]
+            if self.log.exists()
+            else []
+        )
+
+    def test_agent_mode_blocks_mutations_even_with_approval(self):
+        for args in (
+            ("clickhouse", "usekarma-dev"),
+            ("clickhouse", "usekarma-dev", "-d"),
+            ("--plan", "clickhouse", "usekarma-dev", "--auto-approve"),
+        ):
+            result = self.call("deploy.sh", *args, AGENT_MODE="1", AWS_MUTATION_APPROVED="1")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("AGENT_MODE", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_agent_mode_blocks_backend_and_local_state_cleanup(self):
+        for script in ("bootstrap/remote_state.sh", "clean.sh"):
+            result = self.call(
+                script, AGENT_MODE="1", AWS_MUTATION_APPROVED="1", LOCAL_STATE_CLEANUP_APPROVED="1"
+            )
+            self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.calls(), [])
+
+    def test_component_publish_and_cleanup_entrypoints_block_agent_mode(self):
+        scripts = (
+            "components/clickhouse/logout-image/build.sh",
+            "components/clickhouse/kconnect-metrics-image/build.sh",
+            "components/clickhouse/clickhouse-ami/scripts/clean-old-ami.sh",
+        )
+        for script in scripts:
+            result = subprocess.run(
+                ["bash", str(ROOT / script)],
+                env=self.env
+                | {
+                    "AGENT_MODE": "1",
+                    "AWS_MUTATION_APPROVED": "1",
+                    "AWS_DESTRUCTIVE_APPROVED": "1",
+                },
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Agent mode", result.stderr)
+        result = subprocess.run(
+            ["make", "-C", str(ROOT / "components/clickhouse/clickhouse-ami"), "clickhouse"],
+            env=self.env | {"AGENT_MODE": "1", "AWS_MUTATION_APPROVED": "1"},
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Agent mode", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_agent_mode_validate_allowed(self):
+        result = self.call("deploy.sh", "--validate", "clickhouse", "usekarma-dev", AGENT_MODE="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c[1] for c in self.calls() if c[0] == "terragrunt"], ["init", "validate"])
 
     def test_preflight_success_uses_explicit_profile_region(self):
         result = self.call("preflight.sh")
@@ -85,7 +162,15 @@ if Path(sys.argv[0]).name == "aws":
 
     @unittest.skipUnless((ROOT / "terragrunt.hcl").exists(), "IaC entrypoint only")
     def test_destroy_plan_cannot_execute_destroy_or_bootstrap(self):
-        result = self.call("plan.sh", "clickhouse", "usekarma-dev", "--destroy", TG_BACKEND_BOOTSTRAP="true", TG_ALL="true", TG_NON_INTERACTIVE="true")
+        result = self.call(
+            "plan.sh",
+            "clickhouse",
+            "usekarma-dev",
+            "--destroy",
+            TG_BACKEND_BOOTSTRAP="true",
+            TG_ALL="true",
+            TG_NON_INTERACTIVE="true",
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         tg = [call for call in self.calls() if call[0] == "terragrunt"]
         self.assertEqual([call[1] for call in tg], ["init", "plan"])
@@ -106,39 +191,70 @@ if Path(sys.argv[0]).name == "aws":
 
     @unittest.skipUnless((ROOT / "terragrunt.hcl").exists(), "IaC entrypoint only")
     def test_plan_rejects_mutation_flags(self):
-        self.assertNotEqual(self.call("plan.sh", "clickhouse", "usekarma-dev", "--auto-approve").returncode, 0)
-        self.assertNotEqual(self.call("deploy.sh", "--plan", "clickhouse", "usekarma-dev", "--auto-approve").returncode, 0)
+        self.assertNotEqual(
+            self.call("plan.sh", "clickhouse", "usekarma-dev", "--auto-approve").returncode, 0
+        )
+        self.assertNotEqual(
+            self.call(
+                "deploy.sh", "--plan", "clickhouse", "usekarma-dev", "--auto-approve"
+            ).returncode,
+            0,
+        )
         self.assertEqual(self.calls(), [])
 
     @unittest.skipUnless((ROOT / "terragrunt.hcl").exists(), "IaC entrypoint only")
     def test_identity_and_terraform_argument_overrides_stop_before_terragrunt(self):
         for env in ({"TG_IAM_ASSUME_ROLE": "synthetic-role"}, {"TF_CLI_ARGS_plan": "-destroy"}):
-            self.assertNotEqual(self.call("plan.sh", "clickhouse", "usekarma-dev", **env).returncode, 0)
+            self.assertNotEqual(
+                self.call("plan.sh", "clickhouse", "usekarma-dev", **env).returncode, 0
+            )
         self.assertFalse(any(c[0] == "terragrunt" for c in self.calls()))
+
 
 class ConfigSafetyTests(unittest.TestCase):
     @unittest.skipUnless((ROOT / "scripts/mutation_guard.py").exists(), "config publisher only")
     def test_guard_identity_binding_and_approval(self):
         calls = []
+
         class Client:
             def get_caller_identity(self):
                 calls.append("sts")
                 return {"Account": os.environ.get("MOCK_ACCOUNT", "123456789012")}
+
             def get_parameter(self, **kwargs):
                 calls.append("ssm-read")
-                return {"Parameter": {"Value": json.dumps({"name": "usekarma-dev-prod", "environment": os.environ.get("MOCK_ENV", "prod")})}}
+                return {
+                    "Parameter": {
+                        "Value": json.dumps(
+                            {
+                                "name": "usekarma-dev-prod",
+                                "environment": os.environ.get("MOCK_ENV", "prod"),
+                            }
+                        )
+                    }
+                }
+
         class Session:
             def __init__(self, **kwargs):
                 calls.append(kwargs)
+
             def client(self, service):
                 return Client()
+
         fake = types.SimpleNamespace(Session=Session)
         with patch.dict(sys.modules, {"boto3": fake}):
-            spec = importlib.util.spec_from_file_location("guard", ROOT / "scripts/mutation_guard.py")
+            spec = importlib.util.spec_from_file_location(
+                "guard", ROOT / "scripts/mutation_guard.py"
+            )
             guard = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(guard)
-        env = dict(AWS_PROFILE="prod-karma", AWS_REGION="us-east-1", EXPECTED_AWS_ACCOUNT="123456789012",
-                   EXPECTED_ENVIRONMENT="prod", EXPECTED_BINDING="usekarma-dev-prod")
+        env = dict(
+            AWS_PROFILE="prod-karma",
+            AWS_REGION="us-east-1",
+            EXPECTED_AWS_ACCOUNT="123456789012",
+            EXPECTED_ENVIRONMENT="prod",
+            EXPECTED_BINDING="usekarma-dev-prod",
+        )
         with patch.dict(os.environ, env, clear=True):
             with self.assertRaises(SystemExit):
                 guard.approved_session()
@@ -158,6 +274,7 @@ class ConfigSafetyTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 guard.check_local_binding({"name": "wrong", "environment": "prod"})
 
+
 class ConfigValidationTests(unittest.TestCase):
     def test_provider_validation_isolates_data_and_cli_overrides(self):
         spec = importlib.util.spec_from_file_location("verify", ROOT / "scripts/verify.py")
@@ -167,16 +284,22 @@ class ConfigValidationTests(unittest.TestCase):
             verify.ROOT = Path(temp)
             module = verify.ROOT / "components/vpc"
             module.mkdir(parents=True)
-            (module / "main.tf").write_text('terraform {}')
+            (module / "main.tf").write_text("terraform {}")
             calls = []
-            with patch.dict(os.environ, {"TF_DATA_DIR": "/unexpected", "TF_CLI_ARGS_init": "-backend=true"}):
-                with patch.object(verify, "run", side_effect=lambda args, **kw: calls.append((args, kw))):
+            with patch.dict(
+                os.environ, {"TF_DATA_DIR": "/unexpected", "TF_CLI_ARGS_init": "-backend=true"}
+            ):
+                with patch.object(
+                    verify, "run", side_effect=lambda args, **kw: calls.append((args, kw))
+                ):
                     verify.provider_validate("vpc")
             self.assertEqual(len(calls), 2)
             self.assertIn("-backend=false", calls[0][0])
             for args, kwargs in calls:
                 self.assertNotIn("TF_CLI_ARGS_init", kwargs["env"])
-                self.assertEqual(kwargs["env"]["TF_DATA_DIR"], str(Path(kwargs["cwd"]) / ".terraform"))
+                self.assertEqual(
+                    kwargs["env"]["TF_DATA_DIR"], str(Path(kwargs["cwd"]) / ".terraform")
+                )
                 self.assertNotEqual(Path(kwargs["cwd"]), module)
 
     def test_duplicate_keys_and_binding_mismatch_fail(self):
@@ -187,6 +310,7 @@ class ConfigValidationTests(unittest.TestCase):
             json.loads('{"test":1,"test":2}', object_pairs_hook=verify.no_duplicates)
         with self.assertRaises(ValueError):
             verify.validate_config(Path("account_environments/wrong.json"), {"name": "different"})
+
 
 if __name__ == "__main__":
     unittest.main()

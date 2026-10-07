@@ -7,6 +7,7 @@ set -euo pipefail
 : "${EXPECTED_BINDING:?Set the exact binding name, e.g. usekarma-dev-prod}"
 [[ "$EXPECTED_AWS_ACCOUNT" =~ ^[0-9]{12}$ ]] || { echo "Invalid account ID" >&2; exit 1; }
 [[ "$AWS_REGION" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] || { echo "Invalid region" >&2; exit 1; }
+[[ "${IAC_PREFIX:-/iac}" =~ ^(/[a-zA-Z0-9_-]+)+$ ]] || { echo "Invalid IAC_PREFIX; use an absolute path without trailing slash" >&2; exit 1; }
 # Avoid identity divergence between the AWS CLI and Terraform/provider SDKs.
 for variable in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_ARN AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI; do
   [[ -z "${!variable:-}" ]] || { echo "Unset $variable; use only the named profile" >&2; exit 1; }

@@ -1,8 +1,8 @@
 locals {
   # AMI metadata from SSM (JSON)
-  redpanda_ami_meta = jsondecode(nonsensitive(data.aws_ssm_parameter.redpanda_ami.value))
-  redpanda_ami_id   = local.redpanda_ami_meta.ami_id
-  redpanda_root_gb  = try(local.redpanda_ami_meta.root_volume_gb, 30)
+  redpanda_ami_meta    = jsondecode(nonsensitive(data.aws_ssm_parameter.redpanda_ami.value))
+  redpanda_ami_id      = local.redpanda_ami_meta.ami_id
+  redpanda_root_gb     = try(local.redpanda_ami_meta.root_volume_gb, 30)
   redpanda_nodeexp_ver = try(local.redpanda_ami_meta.node_exporter_version, "1.8.2")
 
   # Instance / data volume config
@@ -123,7 +123,7 @@ resource "aws_instance" "redpanda" {
   root_block_device {
     encrypted   = true
     volume_type = "gp3"
-    volume_size = local.redpanda_root_gb  # must be >= root_volume_size_gb in redpanda-ami.pkr.hcl
+    volume_size = local.redpanda_root_gb # must be >= root_volume_size_gb in redpanda-ami.pkr.hcl
   }
 
   metadata_options {

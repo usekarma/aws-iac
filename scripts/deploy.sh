@@ -52,6 +52,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Agent mode cannot be overridden by a human acknowledgement in the environment.
+if [[ "${AGENT_MODE:-0}" != "0" && "${AGENT_MODE:-0}" != "1" ]]; then
+  echo "AGENT_MODE must be 0 or 1" >&2; exit 1
+fi
+if [[ "${AGENT_MODE:-0}" == "1" && ( "$ACTION" != "plan" && "$ACTION" != "validate" || "${#EXTRA_ARGS[@]}" -gt 0 ) ]]; then
+  echo "AGENT_MODE=1 blocks apply, destroy and auto-approve. Use scripts/plan.sh or --validate; execution requires a separately approved human path." >&2
+  exit 1
+fi
+
 # Validate AWS_PROFILE and arguments
 if [[ -z "${AWS_PROFILE:-}" ]]; then
   echo "❌ Error: AWS_PROFILE must be set (e.g., export AWS_PROFILE=dev)"
@@ -80,7 +89,7 @@ fi
 # Reject identity/argument overrides that could diverge from the reviewed target.
 while IFS= read -r variable; do
   case "$variable" in
-    TF_CLI_ARGS*|TG_IAM_ASSUME_ROLE*|TERRAGRUNT_IAM_ROLE*|TG_AUTH_PROVIDER_CMD|TERRAGRUNT_AUTH_PROVIDER_CMD)
+    TF_DATA_DIR|TF_WORKSPACE|TF_CLI_ARGS*|TG_IAM_ASSUME_ROLE*|TERRAGRUNT_IAM_ROLE*|TG_AUTH_PROVIDER_CMD|TERRAGRUNT_AUTH_PROVIDER_CMD)
       [[ -z "${!variable}" ]] || { echo "Unset $variable before repository deployment commands" >&2; exit 1; }
       ;;
   esac

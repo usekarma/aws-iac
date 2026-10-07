@@ -36,3 +36,15 @@ Run ./scripts/verify.sh before completion. For IaC changes also validate the aff
 modules with ./scripts/verify.sh --terraform COMPONENT (repeat for each module).
 Report failures and unavailable checks honestly; passing local gates is not production readiness.
 Record postflight evidence and operational observations after approved changes.
+
+## Explicit agent mode and review artifacts
+
+Always export AGENT_MODE=1. scripts/plan.sh forces this mode. It blocks apply,
+destroy, auto-approve, backend bootstrap and config publication even if an approval
+acknowledgement is inherited. Do not unset it to bypass the contract. Direct cloud
+commands, Packer/image publishing and bootstrap scripts remain subject to this
+contract; read-only IAM is the actual authority boundary, not an editable environment flag.
+Run make verify and make test; changed Python must pass Ruff format/lint.
+Read docs/architecture-assessment.md and docs/evidence-and-evaluation.md.
+Use scripts/evidence.py for private plan review artifacts and scripts/postflight.py
+for read-only resource/SSM expectations. Never commit actual evidence or plan values.

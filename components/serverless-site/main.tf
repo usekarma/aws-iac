@@ -164,7 +164,7 @@ resource "aws_route53_record" "a_aliases" {
 
 resource "aws_ssm_parameter" "runtime" {
   name = local.runtime_path
-  type  = "String"
+  type = "String"
   value = jsonencode({
     content_bucket_prefix          = local.bucket_name,
     cloudfront_distribution_id     = aws_cloudfront_distribution.site.id,

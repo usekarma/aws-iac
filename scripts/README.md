@@ -23,3 +23,5 @@ Saved plan execution requires approval too. Plans are sensitive and use -lock=fa
 for read-only planning; coordinate with operators and regenerate if state/config changes.
 The existing module state bucket/lock table must already exist; backend provisioning
 is a separate approved task. No check here authorizes an agent to mutate AWS.
+
+Use make verify/test/demo and read ../docs/evidence-and-evaluation.md for the enforced agent-safe workflow.

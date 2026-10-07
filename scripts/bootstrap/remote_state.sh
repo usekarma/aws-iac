@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+[[ "${AGENT_MODE:-0}" == "0" ]] || { echo "Agent mode blocks backend mutation" >&2; exit 1; }
+
 # Backend creation is a consequential AWS mutation, not a planning prerequisite.
 [[ "${AWS_MUTATION_APPROVED:-}" == "1" ]] || { echo "Explicit human approval required" >&2; exit 1; }
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."

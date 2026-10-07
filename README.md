@@ -31,7 +31,7 @@ Read [AGENTS.md](AGENTS.md) and [the workflow](docs/agent-workflow.md). Copy
 documentation changes can record scope and verification in a PR description.
 Keep production/non-production changes separate. Never manually alter state as cleanup.
 
-Prerequisites: Bash, Git, Python 3.12+, ShellCheck 0.11.0, Terraform 1.15.2,
+Prerequisites: Bash, Git, Python 3.12+, hash-locked verification tools, Terraform 1.15.2,
 Terragrunt 0.83.2. Verification requires no AWS credentials:
 
 ```bash
@@ -103,3 +103,22 @@ approved changes. See the workflow for operational readiness and known limitatio
 CI runs the same local gate on PRs/pushes with no AWS credentials or deployment steps.
 Require its status via GitHub branch protection separately. Do not interpret green
 syntax/tests as a valid live plan or production readiness.
+
+## Agent-first commands and evidence
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --require-hashes -r requirements-dev.lock
+export AGENT_MODE=1
+make verify
+make test
+make demo
+```
+
+The lock targets Python 3.12/Linux x86_64. Terraform/Terragrunt remain separate
+prerequisites in aws-iac. Agent mode blocks mutation even with inherited approval.
+The legacy deploy default remains apply for human compatibility; agents use explicit
+planning/validation. See [architecture assessment](docs/architecture-assessment.md)
+and [evidence, postflight and metrics](docs/evidence-and-evaluation.md).
+Raw plans and generated evidence belong in ignored artifacts/ or another private path.

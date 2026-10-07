@@ -92,10 +92,10 @@ resource "aws_lambda_permission" "api" {
 resource "aws_apigatewayv2_integration" "lambda" {
   for_each = local.lambda_integrations
 
-  api_id             = aws_apigatewayv2_api.http_api.id
-  integration_type   = "AWS_PROXY"
-  integration_uri    = each.value
-  integration_method = "POST"
+  api_id                 = aws_apigatewayv2_api.http_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = each.value
+  integration_method     = "POST"
   payload_format_version = "2.0"
 
   timeout_milliseconds = 29000
@@ -110,8 +110,8 @@ resource "aws_apigatewayv2_route" "lambda" {
 }
 
 resource "aws_ssm_parameter" "runtime" {
-  name  = local.runtime_path
-  type  = "String"
+  name = local.runtime_path
+  type = "String"
   value = jsonencode({
     api_id        = aws_apigatewayv2_api.http_api.id,
     api_endpoint  = aws_apigatewayv2_api.http_api.api_endpoint,

@@ -1,0 +1,72 @@
+# Upgrade file manifest
+
+Compared with original main; includes previous draft and this extension.
+See architecture-assessment.md, evidence-and-evaluation.md and verification.md.
+
+- `.github/workflows/verify.yml`
+- `.gitignore`
+- `AGENTS.md`
+- `Makefile`
+- `README.md`
+- `components/clickhouse/alb.tf`
+- `components/clickhouse/clickhouse-ami/Makefile`
+- `components/clickhouse/clickhouse-ami/scripts/clean-old-ami.sh`
+- `components/clickhouse/header.tf`
+- `components/clickhouse/kconnect-metrics-image/build.sh`
+- `components/clickhouse/logout-image/build.sh`
+- `components/clickhouse/logout.tf`
+- `components/clickhouse/main.tf`
+- `components/clickhouse/mongo.tf`
+- `components/clickhouse/redpanda-console.tf`
+- `components/clickhouse/redpanda.tf`
+- `components/cognito-sso/header.tf`
+- `components/ecs-cluster/header.tf`
+- `components/ecs-service/header.tf`
+- `components/ecs-service/main.tf`
+- `components/email-forwarding/header.tf`
+- `components/grafana/header.tf`
+- `components/grafana/main.tf`
+- `components/lambda/header.tf`
+- `components/lambda/main.tf`
+- `components/route53-zone/header.tf`
+- `components/route53-zone/main.tf`
+- `components/s3-bucket/header.tf`
+- `components/s3-bucket/main.tf`
+- `components/serverless-api/header.tf`
+- `components/serverless-api/main.tf`
+- `components/serverless-site/header.tf`
+- `components/serverless-site/main.tf`
+- `components/vpc/header.tf`
+- `docs/agent-workflow.md`
+- `docs/architecture-assessment.md`
+- `docs/change-manifest.md`
+- `docs/destructive-operations.md`
+- `docs/evidence-and-evaluation.md`
+- `docs/verification.md`
+- `examples/review-context.synthetic.json`
+- `examples/teardown.synthetic.json`
+- `pyproject.toml`
+- `requirements-dev.lock`
+- `scripts/README.md`
+- `scripts/bootstrap/remote_state.sh`
+- `scripts/clean.sh`
+- `scripts/demo.py`
+- `scripts/deploy.sh`
+- `scripts/evidence.py`
+- `scripts/inventory.sh`
+- `scripts/inventory_report.py`
+- `scripts/plan.sh`
+- `scripts/postflight.py`
+- `scripts/preflight.sh`
+- `scripts/static_security.py`
+- `scripts/verify.py`
+- `scripts/verify.sh`
+- `specs/README.md`
+- `specs/TEMPLATE.md`
+- `specs/clickhouse-cleanup.example.md`
+- `terragrunt.hcl`
+- `tests/test_evidence.py`
+- `tests/test_inventory.py`
+- `tests/test_postflight.py`
+- `tests/test_safety.py`
+

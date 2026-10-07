@@ -1,39 +1,59 @@
-# Verification record for agent-workflow introduction
+# Upgrade verification record
 
-Base revisions inspected: aws-iac 6c127a9; aws-config b39afb8.
-Tools: Python 3.12, ShellCheck 0.11.0, Terraform 1.15.2, Terragrunt 0.83.2.
-Terraform/Terragrunt binaries matched the published release SHA256 checksums.
+Original main inspected: aws-iac 6c127a9; aws-config b39afb8. Existing draft work
+extended: aws-iac f678fee; aws-config bd959f7. Template principles inspected at 2c23b89.
 
-## Completed locally
+## Executed locally
 
-- Both ./scripts/verify.sh commands passed; config also passed with AWS_IAC_DIR=../aws-iac.
-- IaC: 11 behavioral tests passed; one config-specific test skipped by design.
-- Config: 7 behavioral tests passed; four IaC-specific tests skipped by design.
-- All tracked Python/shell syntax and JSON checked; changed shell scripts passed ShellCheck.
-- Terraform syntax checked across modules, changed Grafana file formatted;
-  root Terragrunt formatting and HCL validation passed.
-- Grafana's invalid semicolon/nested one-line blocks were repaired and formatted;
-  resource addresses, resource expressions and defaults were not redesigned.
-- 24 unchanged Terraform files have existing formatting differences, reported by the gate.
-- CI YAML parsed; actions pinned, no cloud credentials or mutation steps.
-- Diff/whitespace and credential-pattern review passed. Scripts have executable modes.
+Python 3.12; Ruff 0.11.13; ShellCheck 0.11.0; python-hcl2 7.3.1;
+jsonschema 4.23.0; Terraform 1.15.2; Terragrunt 0.83.2.
+Verification dependencies are exact-version and wheel-hash locked for Python 3.12/Linux x86_64.
 
-## Blocked or not executed
+- Both make verify commands passed; aws-config also used AWS_IAC_DIR=../aws-iac.
+- IaC: 23 tests passed; 1 config-only test skipped. Config: 18 passed; 4 IaC-only skipped.
+- All 20 current component configurations and 4 bindings passed explicit local contracts.
+- All tracked/new Python/shell syntax and JSON checked; duplicate keys rejected.
+- Changed Python passed Ruff lint/format; changed shell passed ShellCheck.
+- All Terraform files passed fmt checks; root Terragrunt fmt/HCL validation passed.
+- Local HCL parser checked all modules; duplicate and undefined local references rejected.
+- Static security regression inventory passed without added risk patterns.
+- Both synthetic make demo runs produced private JSON/Markdown proposals with strong
+  destructive approval, persistent-data risk, root-volume risk and preservation caveats.
+- Guard tests proved agent mode blocks default apply, destroy, auto-approve, backend
+  bootstrap, local state cleanup, AMI build/pruning and image publication before cloud calls.
+- Config tests proved inherited acknowledgement does not bypass agent mode, wrong
+  accounts/bindings fail, and constrained schemas reject malformed types/unknown keys.
+- Postflight tests distinguish absence from permission failures; no mutation commands exist.
+- Diff/whitespace and credential-pattern scan passed; no credentials were introduced.
 
-- Grafana provider validation fails before provider startup: duplicate runtime_path
-  local in header.tf/main.tf. This existing semantic issue is deferred, not waived.
-- ClickHouse and VPC init -backend=false succeeded in disposable copies, downloaded
-  hashicorp/aws 6.67.0, but validate failed to launch its schema plugin (protocol/startup
-  failure in this runtime). Their full provider validation is unverified. Rerun on
-  the operator machine before planning. Other modules were not provider-validated
-  because the same AWS provider startup is unavailable here.
-- No live preflight, inventory, plan, deployment, config publish or postflight performed.
-  Target account credentials and independently confirmed account IDs are not available.
-  Mocked commands test safety behavior; they do not prove live AWS permissions or state.
-- GitHub CI outcomes are separate from local results and should be checked on the branch/PR.
+## Provider validation limitation (not success)
 
-No AWS infrastructure was applied, destroyed or mutated. No existing Terraform
-state was read or modified. Temporary provider initialization created only disposable
-local metadata/lock files, removed with the validation copies. No plans/state/secrets
-were committed. See agent-workflow.md for provider pinning, runtime secret handling
-and other follow-up work.
+Backend-disabled VPC init succeeded and downloaded hashicorp/aws 6.67.0.
+Terraform validate could not start that provider: its local Unix socket returned
+`socket: operation not permitted`. This is a runtime restriction, confirmed in provider
+debug output. No provider validation success is claimed. GitHub CI now also runs
+backend-disabled validation of affected components without AWS credentials. Provider
+or remote-module failures block that job and must be fixed before accepting a live plan.
+No live STS, SSM, inventory, plan, postflight, config publication, apply or destroy ran.
+Mocked tests and synthetic plan evidence are labeled; they do not attest current AWS state.
+
+## Compatibility and operational limits
+
+- Human deploy default remains apply, guarded by explicit target/approval variables.
+  scripts/plan.sh forces agent mode; read-only IAM is the true authority boundary.
+- Agent mode intentionally rejects inherited approval. AMI pruning additionally needs
+  AWS_DESTRUCTIVE_APPROVED=1 and typed confirmation; local-state cleanup needs
+  LOCAL_STATE_CLEANUP_APPROVED=1. These acknowledgements do not authorize an agent.
+- Config publication now requires schema dependencies; unknown top-level keys and
+  unresolved same-environment dependencies fail. Extend contracts deliberately for
+  new components or external runtime dependencies.
+- Two pre-existing semantic defects were repaired: duplicate Grafana runtime local,
+  and undefined ECS service config alias. Formatting changes preserve HCL semantics.
+- Provider versions/remote-module branches remain unpinned in existing infrastructure.
+  Schema/security checks are deliberately limited; they cannot prove IAM least privilege,
+  network safety, restoration viability or cost. Full plans can contain secrets.
+- Inventory/postflight is selected account/region only and covers a bounded set of
+  resource types; application health, S3/database/ECS verification and other regions
+  remain per-spec checks. Branch protection needs separate owner configuration.
+
+No AWS resources or existing Terraform state were modified.

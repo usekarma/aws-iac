@@ -168,3 +168,11 @@ redpanda: ## Build Redpanda AMI + write SSM param
 	    --overwrite \
 	    --value "$$JSON" >/dev/null; \
 	  echo "[redpanda] SSM update complete."
+
+.PHONY: mutation-guard
+mutation-guard:
+	@test "$${AGENT_MODE:-0}" = 0 || { echo "Agent mode blocks AMI build and metadata publication" >&2; exit 1; }
+	@test "$${AWS_MUTATION_APPROVED:-}" = 1 || { echo "Explicit human approval required for AMI build/publication" >&2; exit 1; }
+	@AWS_PROFILE="$(AWS_PROFILE)" AWS_REGION="$(AWS_REGION)" ../../../scripts/preflight.sh
+
+clickhouse mongo redpanda: mutation-guard

@@ -63,7 +63,7 @@ It checks all tracked shell/Python syntax, all JSON (duplicate keys rejected), c
 shell scripts with ShellCheck, obvious credential material, and behavioral safety tests.
 IaC checks Terraform syntax everywhere using non-writing fmt checks, enforces formatting
 on changed Terraform files, and validates/formats the root Terragrunt config.
-Legacy unchanged Terraform formatting differences are reported, not silently reformatted.
+Terraform formatting debt was normalized in this upgrade; syntax/format checks cover modules.
 Use VERIFY_BASE_REF to set the comparison base; default is origin/main, including local
 uncommitted/untracked edits. CI uses the PR base commit. An invalid base is a failure.
 Do not move the base to hide a changed-file failure.
@@ -77,8 +77,8 @@ pinned by the existing modules; results may vary after provider upgrades.
 
 Config checks binding field types, environment selection, config object structure,
 tags and duplicate keys. `AWS_IAC_DIR=../aws-iac ./scripts/verify.sh` additionally checks
-that config component names exist in the sibling checkout. This is structural validation,
-not a complete schema for every module's optional inputs. Deployment scripts need boto3.
+that config component names exist in the sibling checkout. Per-component schemas and local dependency checks are enforced;
+optional fields without constrained types are identified in schemas/README.md. Deployment scripts need boto3.
 
 The credential scan covers private-key markers and common AWS/GitHub token patterns;
 it is not a complete security audit. Review IAM, CIDRs, secrets and template changes manually.
@@ -102,13 +102,16 @@ state just to reverse a deployment. Treat state repair as a separate approved ta
 ## Existing issues to address separately
 
 - Modules have no provider version constraints or committed provider lock files.
-- Grafana provider validation is blocked by a pre-existing duplicate runtime_path local
-  in header.tf and main.tf. Its invalid one-line HCL blocks were repaired here;
-  resolve the remaining semantic error in a separate module-focused change.
-- Some legacy Terraform/shell files need formatting/lint remediation in scoped changes.
+- Grafana duplicate runtime_path was repaired by retaining the standard header definition.
+  Full provider validation still needs provider/module downloads and schema startup.
+- Legacy shell files still need scoped lint remediation; Terraform formatting is normalized.
 - Config binding `iac_strict`, branch and allow_drift fields are metadata; current
   deployment scripts do not enforce Git revision/review policy.
 - ClickHouse runtime/userdata includes MongoDB connection details. Handle all
   plan/state/runtime artifacts as sensitive; review secret handling separately.
 - `ch-down.sh` chains broad teardown including shared VPC/ECS. Do not use it for
   component-only cleanup. `clean.sh` removes local state artifacts, not AWS resources.
+
+See evidence-and-evaluation.md for explicit agent mode, private evidence, postflight,
+demo and measurements. Install the verification dependencies from requirements-dev.lock
+with --require-hashes. Ruff checks changed Python; static IaC risk regressions fail.
