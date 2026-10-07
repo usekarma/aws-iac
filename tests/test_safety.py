@@ -213,7 +213,11 @@ if Path(sys.argv[0]).name == "aws":
 
     @unittest.skipUnless((ROOT / "terragrunt.hcl").exists(), "IaC entrypoint only")
     def test_identity_and_terraform_argument_overrides_stop_before_terragrunt(self):
-        for env in ({"TG_IAM_ASSUME_ROLE": "synthetic-role"}, {"TF_CLI_ARGS_plan": "-destroy"}):
+        for env in (
+            {"TG_IAM_ASSUME_ROLE": "synthetic-role"},
+            {"TF_CLI_ARGS_plan": "-destroy"},
+            {"TF_VAR_nickname": "wrong-target"},
+        ):
             self.assertNotEqual(
                 self.call("plan.sh", "clickhouse", "usekarma-dev", **env).returncode, 0
             )

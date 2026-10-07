@@ -103,7 +103,8 @@ state just to reverse a deployment. Treat state repair as a separate approved ta
 
 - Modules have no provider version constraints or committed provider lock files.
 - Grafana duplicate runtime_path was repaired by retaining the standard header definition.
-  Full provider validation still needs provider/module downloads and schema startup.
+  Grafana template interpolation and ECS dependency defects were also repaired.
+  Supported modules passed credential-free provider validation in GitHub CI.
 - Legacy shell files still need scoped lint remediation; Terraform formatting is normalized.
 - Config binding `iac_strict`, branch and allow_drift fields are metadata; current
   deployment scripts do not enforce Git revision/review policy.
@@ -115,3 +116,7 @@ state just to reverse a deployment. Treat state repair as a separate approved ta
 See evidence-and-evaluation.md for explicit agent mode, private evidence, postflight,
 demo and measurements. Install the verification dependencies from requirements-dev.lock
 with --require-hashes. Ruff checks changed Python; static IaC risk regressions fail.
+
+The email-forwarding prototype is source-preserved but explicitly blocked by
+components/status.json. It cannot be deployed even in human mode; a reviewed
+implementation and validation are prerequisites for promotion. See its README.

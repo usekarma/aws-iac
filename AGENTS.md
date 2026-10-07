@@ -48,3 +48,6 @@ Run make verify and make test; changed Python must pass Ruff format/lint.
 Read docs/architecture-assessment.md and docs/evidence-and-evaluation.md.
 Use scripts/evidence.py for private plan review artifacts and scripts/postflight.py
 for read-only resource/SSM expectations. Never commit actual evidence or plan values.
+
+The email-forwarding prototype is not deployment-ready; aws-iac blocks it before
+AWS access. Do not bypass its status or invent resources to silence validation.

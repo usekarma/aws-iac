@@ -10,7 +10,7 @@ jsonschema 4.23.0; Terraform 1.15.2; Terragrunt 0.83.2.
 Verification dependencies are exact-version and wheel-hash locked for Python 3.12/Linux x86_64.
 
 - Both make verify commands passed; aws-config also used AWS_IAC_DIR=../aws-iac.
-- IaC: 23 tests passed; 1 config-only test skipped. Config: 18 passed; 4 IaC-only skipped.
+- IaC: 25 tests passed; 1 config-only test skipped. Config: 18 passed; 4 IaC-only skipped.
 - All 20 current component configurations and 4 bindings passed explicit local contracts.
 - All tracked/new Python/shell syntax and JSON checked; duplicate keys rejected.
 - Changed Python passed Ruff lint/format; changed shell passed ShellCheck.
@@ -26,16 +26,23 @@ Verification dependencies are exact-version and wheel-hash locked for Python 3.1
 - Postflight tests distinguish absence from permission failures; no mutation commands exist.
 - Diff/whitespace and credential-pattern scan passed; no credentials were introduced.
 
-## Provider validation limitation (not success)
+## Credential-free CI and provider validation
 
-Backend-disabled VPC init succeeded and downloaded hashicorp/aws 6.67.0.
-Terraform validate could not start that provider: its local Unix socket returned
-`socket: operation not permitted`. This is a runtime restriction, confirmed in provider
-debug output. No provider validation success is claimed. GitHub CI now also runs
-backend-disabled validation of affected components without AWS credentials. Provider
-or remote-module failures block that job and must be fixed before accepting a live plan.
+GitHub Actions runs 37565716502 (aws-iac source 6319626) and 37565737880
+(aws-config source b8644a1) completed successfully. IaC CI performed backend-disabled
+init/validate for all eleven supported modules, including ClickHouse, Grafana, ECS,
+VPC and serverless modules. Warnings about deprecated AWS region attributes remain.
+The incomplete email-forwarding prototype is blocked from deployment; CI checks
+its retained HCL remains semantically unchanged rather than inventing missing resources.
+
+Local provider startup is restricted: its Unix socket returned socket: operation not
+permitted. GitHub's provider success supplies the separate validation evidence;
+no local provider success is claimed. A real Grafana template was also rendered locally
+with synthetic values, and its runtime interpolation and Bash syntax passed a regression test.
+
 No live STS, SSM, inventory, plan, postflight, config publication, apply or destroy ran.
 Mocked tests and synthetic plan evidence are labeled; they do not attest current AWS state.
+Provider validation does not configure providers or refresh data/state; remote backend is disabled.
 
 ## Compatibility and operational limits
 
@@ -47,8 +54,11 @@ Mocked tests and synthetic plan evidence are labeled; they do not attest current
 - Config publication now requires schema dependencies; unknown top-level keys and
   unresolved same-environment dependencies fail. Extend contracts deliberately for
   new components or external runtime dependencies.
-- Two pre-existing semantic defects were repaired: duplicate Grafana runtime local,
-  and undefined ECS service config alias. Formatting changes preserve HCL semantics.
+- Existing defects repaired: Grafana duplicate runtime local and invalid shell interpolation;
+  ECS config alias, missing SSM dependencies and mismatched VPC runtime key. Formatting
+  changes preserve HCL semantics. No resource addresses were renamed.
+- Incomplete email-forwarding remains source-preserved but blocked; promoting it requires
+  an implementation spec and successful validation. This is an intentional compatibility restriction.
 - Provider versions/remote-module branches remain unpinned in existing infrastructure.
   Schema/security checks are deliberately limited; they cannot prove IAM least privilege,
   network safety, restoration viability or cost. Full plans can contain secrets.

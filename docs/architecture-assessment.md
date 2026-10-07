@@ -18,9 +18,11 @@ runtime JSON through SSM and writes its own runtime JSON. There is no Terragrunt
 Deployment order must follow those runtime dependencies. Some aliases use us-east-1.
 
 Implemented components: clickhouse, cognito-sso, ecs-cluster, ecs-service,
-email-forwarding, grafana, lambda, route53-zone, s3-bucket, serverless-api,
+grafana, lambda, route53-zone, s3-bucket, serverless-api,
 serverless-site, vpc. eks-cluster, rds-postgres and sqs-queue are documentation/examples,
-not deployable modules. ClickHouse owns ClickHouse, MongoDB, Redpanda, EBS, ECS services,
+not deployable modules. email-forwarding is an incomplete prototype: its external source
+is application code, not a Terraform module, and it references missing Lambda resources.
+It has no current config and is explicitly blocked from deployment. ClickHouse owns ClickHouse, MongoDB, Redpanda, EBS, ECS services,
 ALB/DNS and observability; AMI builds and application image publication are separate.
 VPC supplies subnet/security-group runtime, ECS supplies cluster runtime, S3 supplies
 backup bucket runtime, Cognito supplies authentication runtime. Lambda resolves VPC

@@ -23,9 +23,11 @@ See architecture-assessment.md, evidence-and-evaluation.md and verification.md.
 - `components/ecs-cluster/header.tf`
 - `components/ecs-service/header.tf`
 - `components/ecs-service/main.tf`
+- `components/email-forwarding/README.md`
 - `components/email-forwarding/header.tf`
 - `components/grafana/header.tf`
 - `components/grafana/main.tf`
+- `components/grafana/userdata.sh.tmpl`
 - `components/lambda/header.tf`
 - `components/lambda/main.tf`
 - `components/route53-zone/header.tf`
@@ -36,6 +38,7 @@ See architecture-assessment.md, evidence-and-evaluation.md and verification.md.
 - `components/serverless-api/main.tf`
 - `components/serverless-site/header.tf`
 - `components/serverless-site/main.tf`
+- `components/status.json`
 - `components/vpc/header.tf`
 - `docs/agent-workflow.md`
 - `docs/architecture-assessment.md`
@@ -69,4 +72,5 @@ See architecture-assessment.md, evidence-and-evaluation.md and verification.md.
 - `tests/test_inventory.py`
 - `tests/test_postflight.py`
 - `tests/test_safety.py`
+- `tests/test_templates.py`
 

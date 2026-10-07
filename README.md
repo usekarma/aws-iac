@@ -7,7 +7,8 @@ Part of [Adage](https://github.com/usekarma/adage).
 ## Repository map
 
 - `components/`: VPC, ECS, ClickHouse/MongoDB/Redpanda stack, Cognito, DNS,
-  S3, Lambda, serverless API/site, Grafana and other modules. Some directories
+  S3, Lambda, serverless API/site, Grafana and other modules. email-forwarding is
+  an incomplete prototype, explicitly blocked from deployment. Some directories
   (e.g. rds-postgres, eks-cluster, sqs-queue) contain documentation only.
 - `terragrunt.hcl`: per-account S3 state, DynamoDB locking, component/nickname inputs.
 - `scripts/deploy.sh`: existing single-component runner; defaults to **apply**.

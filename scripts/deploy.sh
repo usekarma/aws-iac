@@ -95,7 +95,7 @@ fi
 # Reject identity/argument overrides that could diverge from the reviewed target.
 while IFS= read -r variable; do
   case "$variable" in
-    TF_DATA_DIR|TF_WORKSPACE|TF_CLI_ARGS*|TG_IAM_ASSUME_ROLE*|TERRAGRUNT_IAM_ROLE*|TG_AUTH_PROVIDER_CMD|TERRAGRUNT_AUTH_PROVIDER_CMD)
+    TF_DATA_DIR|TF_WORKSPACE|TF_VAR_*|TF_CLI_ARGS*|TG_IAM_ASSUME_ROLE*|TERRAGRUNT_IAM_ROLE*|TG_AUTH_PROVIDER_CMD|TERRAGRUNT_AUTH_PROVIDER_CMD)
       [[ -z "${!variable}" ]] || { echo "Unset $variable before repository deployment commands" >&2; exit 1; }
       ;;
   esac
