@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#333"/>
+    </marker>
+    <style>
+      .title{font:700 26px Arial,sans-serif;fill:#111}
+      .label{font:600 16px Arial,sans-serif;fill:#111}
+      .small{font:14px Arial,sans-serif;fill:#444}
+      .code{font:14px 'Courier New',monospace;fill:#111}
+      .box{fill:#f8fafc;stroke:#64748b;stroke-width:2}
+      .soft{fill:#ffffff;stroke:#94a3b8;stroke-width:2}
+      .orange{fill:#fff7ed;stroke:#fb923c;stroke-width:2}
+      .green{fill:#f0fdf4;stroke:#86efac;stroke-width:2}
+      .pink{fill:#fdf2f8;stroke:#f9a8d4;stroke-width:2}
+      .blue{fill:#eff6ff;stroke:#93c5fd;stroke-width:2}
+      .yellow{fill:#fff7d6;stroke:#fbbf24;stroke-width:2}
+      .flow{stroke:#333;stroke-width:2.5;fill:none;marker-end:url(#arrow)}
+      .dash{stroke:#475569;stroke-width:2.5;fill:none;stroke-dasharray:8 6}
+    </style>
+  </defs>
+
+  <text x="30" y="40" class="title">IoT Digital Twin Telemetry Architecture</text>
+
+  <text x="30" y="75" class="small">Repository-defined architecture; deployment blocked pending artifact publication and trusted principal.</text>
+
+  <rect x="40" y="300" width="180" height="120" rx="12" class="box"/>
+  <text x="130" y="355" text-anchor="middle" class="label">M5Stack Core2</text>
+  <text x="130" y="383" text-anchor="middle" class="small">physical device</text>
+
+  <rect x="340" y="120" width="360" height="460" rx="16" class="box"/>
+  <text x="370" y="160" class="label" style="font-size:22px">AWS IoT</text>
+  <text x="370" y="186" class="small">(us-east-1)</text>
+
+  <rect x="370" y="220" width="300" height="90" rx="12" class="soft"/>
+  <text x="520" y="258" text-anchor="middle" class="label">AWS IoT</text>
+  <text x="520" y="286" text-anchor="middle" class="label">Thing + Policy</text>
+
+  <text x="520" y="337" text-anchor="middle" class="small">publishes to topic</text>
+  <rect x="390" y="350" width="260" height="36" rx="10" class="blue"/>
+  <text x="520" y="373" text-anchor="middle" class="code">devices/core2-aws-001/telemetry</text>
+
+  <rect x="370" y="450" width="300" height="90" rx="12" class="soft"/>
+  <text x="520" y="503" text-anchor="middle" class="label" style="font-size:18px">IoT Topic Rule</text>
+
+  <rect x="900" y="380" width="270" height="180" rx="16" class="orange"/>
+  <text x="1035" y="432" text-anchor="middle" class="label">Lambda:</text>
+  <text x="1035" y="460" text-anchor="middle" class="label">iot-digital-twin-ingest</text>
+  <text x="1035" y="494" text-anchor="middle" class="small">Python 3.12</text>
+  <text x="1035" y="518" text-anchor="middle" class="small">app.lambda_handler</text>
+
+  <rect x="880" y="90" width="320" height="120" rx="16" class="green"/>
+  <text x="1040" y="130" text-anchor="middle" class="label">Immutable S3</text>
+  <text x="1040" y="158" text-anchor="middle" class="label">Lambda artifact</text>
+  <text x="1040" y="188" text-anchor="middle" class="small">bucket / key / version / SHA-256</text>
+
+  <rect x="1320" y="140" width="250" height="80" rx="12" class="pink"/>
+  <text x="1445" y="188" text-anchor="middle" class="label">IAM role + policies</text>
+
+  <rect x="1320" y="260" width="250" height="80" rx="12" class="pink"/>
+  <text x="1445" y="308" text-anchor="middle" class="label">CloudWatch Logs</text>
+
+  <rect x="1320" y="380" width="250" height="80" rx="12" class="pink"/>
+  <text x="1445" y="428" text-anchor="middle" class="label">SSM config / runtime metadata</text>
+  <text x="1445" y="449" text-anchor="middle" class="small">IaC reads / publishes</text>
+
+  <rect x="1320" y="500" width="250" height="110" rx="12" class="blue"/>
+  <text x="1445" y="548" text-anchor="middle" class="label">DynamoDB latest-state</text>
+  <text x="1445" y="578" text-anchor="middle" class="small">PK = device_id</text>
+
+  <rect x="760" y="420" width="130" height="70" rx="12" class="yellow"/>
+  <text x="825" y="448" text-anchor="middle" class="small">injects</text>
+  <text x="825" y="470" text-anchor="middle" class="small">principal() + topic()</text>
+
+  <rect x="760" y="670" width="420" height="180" rx="16" class="blue"/>
+  <text x="790" y="710" class="label" style="font-size:22px">What Lambda validates</text>
+  <text x="810" y="746" class="small">• trusted identity</text>
+  <text x="810" y="776" class="small">• topic</text>
+  <text x="810" y="806" class="small">• timestamp / clock skew</text>
+  <text x="810" y="836" class="small">• IMU value bounds</text>
+  <text x="810" y="866" class="small">• monotonic sequence / replay rejection</text>
+
+  <rect x="1230" y="670" width="340" height="160" rx="16" class="yellow"/>
+  <text x="1260" y="710" class="label" style="font-size:22px">Not deployed yet</text>
+  <text x="1280" y="746" class="small">• certificate attachment</text>
+  <text x="1280" y="776" class="small">• trusted principal resolution</text>
+  <text x="1280" y="806" class="small">• TwinMaker integration</text>
+
+  <line x1="220" y1="360" x2="340" y2="360" class="flow"/>
+  <text x="280" y="332" text-anchor="middle" class="small">MQTT/TLS</text>
+  <text x="280" y="352" text-anchor="middle" class="small">telemetry</text>
+
+  <line x1="520" y1="310" x2="520" y2="450" class="flow"/>
+  <line x1="670" y1="495" x2="900" y2="470" class="flow"/>
+  <line x1="1040" y1="210" x2="1040" y2="380" class="dash" marker-end="url(#arrow)"/>
+  <text x="1056" y="295" class="small">deployment package</text>
+
+  <line x1="1320" y1="180" x2="1170" y2="430" class="dash"/>
+  <line x1="1320" y1="300" x2="1170" y2="455" class="dash"/>
+  <line x1="1320" y1="420" x2="1170" y2="480" class="dash"/>
+  <line x1="1170" y1="470" x2="1320" y2="555" class="flow"/>
+  <text x="1230" y="460" class="small">PutItem</text>
+</svg>

@@ -38,3 +38,14 @@ expected principal, derived device identity/table and a matching telemetry topic
 See [the declaration/handoff contract](../../docs/lambda-artifact-contract.md).
 Merged aws-config contract v1 is structurally compatible; its unresolved
 artifact and trusted principal still block planning. Certificate attachment and TwinMaker remain excluded/deferred.
+
+## Architecture diagram
+
+This diagram shows the repository-defined telemetry path and supporting infrastructure.
+Deployment remains blocked pending artifact publication and trusted-principal resolution;
+certificate attachment and TwinMaker integration remain deferred.
+
+![IoT digital twin telemetry architecture](../../docs/diagrams/iot-digital-twin-telemetry-architecture.svg)
+
+[View SVG](../../docs/diagrams/iot-digital-twin-telemetry-architecture.svg) ·
+[Editable diagrams.net source](../../docs/diagrams/iot-digital-twin-telemetry-architecture.drawio)
