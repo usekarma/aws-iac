@@ -17,11 +17,12 @@ provider "aws" {
 }
 
 data "aws_ssm_parameter" "config" {
-  name = "${var.iac_prefix}/${var.component_name}/${var.nickname}/config"
+  count = var.plan_config_json == null ? 1 : 0
+  name  = "${var.iac_prefix}/${var.component_name}/${var.nickname}/config"
 }
 
 locals {
-  config = try(nonsensitive(jsondecode(data.aws_ssm_parameter.config.value)), {})
+  config = jsondecode(var.plan_config_json == null ? try(nonsensitive(data.aws_ssm_parameter.config[0].value), "{}") : var.plan_config_json)
 
   tags = merge(
     {
@@ -31,8 +32,24 @@ locals {
     try(local.config.tags, {})
   )
 
-  config_path  = data.aws_ssm_parameter.config.name
+  config_path  = "${var.iac_prefix}/${var.component_name}/${var.nickname}/config"
   runtime_path = "${var.iac_prefix}/${var.component_name}/${var.nickname}/runtime"
+}
+
+variable "plan_config_json" {
+  type        = string
+  default     = null
+  description = "Unpublished configuration for plan review only. Human execution must publish reviewed aws-config inputs and regenerate the plan."
+
+  validation {
+    condition     = var.plan_config_json == null ? true : can(jsondecode(var.plan_config_json).bucket_name)
+    error_message = "Plan configuration must be a JSON object containing bucket_name."
+  }
+}
+
+moved {
+  from = data.aws_ssm_parameter.config
+  to   = data.aws_ssm_parameter.config[0]
 }
 
 variable "region" {

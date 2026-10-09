@@ -282,6 +282,31 @@ if Path(sys.argv[0]).name == "aws":
         )
         self.assertEqual(self.calls(), [])
 
+    def test_unpublished_s3_config_is_plan_only(self):
+        (self.work / "components/s3-bucket").mkdir()
+        (self.work / "components/s3-bucket/header.tf").write_text("terraform {}")
+        config = self.work / "proposal.json"
+        config.write_text(json.dumps({"bucket_name": "synthetic-artifacts"}))
+        for args in (
+            ("s3-bucket", "artifacts"),
+            ("--destroy", "s3-bucket", "artifacts"),
+            ("--destroy-plan", "s3-bucket", "artifacts"),
+            ("--validate", "s3-bucket", "artifacts"),
+            ("--plan", "clickhouse", "artifacts"),
+            ("--plan", "s3-bucket", "artifacts", "--auto-approve"),
+        ):
+            result = self.call("deploy.sh", *args, "--plan-config", str(config), AGENT_MODE="1")
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.calls(), [])
+        result = self.call("plan.sh", "s3-bucket", "artifacts", "--plan-config", str(config))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        tg = [c for c in self.calls() if c[0] == "terragrunt"]
+        self.assertEqual([c[1] for c in tg], ["init", "plan"])
+        self.assertIn('-var=plan_config_json={"bucket_name": "synthetic-artifacts"}', tg[-1])
+        self.assertIn("-lock=false", tg[-1])
+        self.assertIn("--backend-require-bootstrap", tg[-1])
+        self.assertIn("--disable-bucket-update", tg[-1])
+
     @unittest.skipUnless((ROOT / "terragrunt.hcl").exists(), "IaC entrypoint only")
     def test_identity_and_terraform_argument_overrides_stop_before_terragrunt(self):
         for env in (
