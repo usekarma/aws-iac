@@ -1,0 +1,5 @@
+{
+  "contract_name": "aws-config",
+  "supported_contract_versions": [1],
+  "compatibility_policy": "Every aws-config contract version consumed by this repository must be listed explicitly. Review aws-iac inputs before adding a new version."
+}
