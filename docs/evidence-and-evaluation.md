@@ -97,3 +97,11 @@ Measure over a small weekly sample:
 Pilot five small tasks. Keep production readiness unclaimed until live planning,
 restore and verification evidence exists. Compare with the previous manual workflow;
 revise contracts from observed failures rather than adding a telemetry service.
+
+## Bounded role evidence
+
+`scripts/agent_workflow.py` writes deterministic summary JSON/Markdown and private
+logs/manifests under `artifacts/agent-workflow/`. See
+[bounded-agent-workflow.md](bounded-agent-workflow.md) for source/diff fingerprints,
+role reports, one remediation continuation and explicit separation of local/static,
+plan and live evidence. Its READY_FOR_HUMAN_REVIEW state never authorizes execution.

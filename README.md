@@ -123,3 +123,11 @@ The legacy deploy default remains apply for human compatibility; agents use expl
 planning/validation. See [architecture assessment](docs/architecture-assessment.md)
 and [evidence, postflight and metrics](docs/evidence-and-evaluation.md).
 Raw plans and generated evidence belong in ignored artifacts/ or another private path.
+
+## Repository-local role workflow
+
+Use the [.agent role contracts](.agent/README.md) and
+[bounded workflow guide](docs/bounded-agent-workflow.md) to hand off Architect,
+Builder, Verifier, Reviewer, Security and Operations evidence. The local runner
+allows one remediation continuation and stops for human review. It does not choose
+an AWS account, invoke cloud operations or change the deployment safety boundary.

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "iot-digital-twin-local-review",
+  "components": ["iot-digital-twin"],
+  "desired_state": {
+    "repository": "../aws-config",
+    "config_paths": ["iac/dev/iot-digital-twin/core2-aws-001/config.json"]
+  },
+  "authorization_reference": "Example only: replace with actual human-approved repository work request",
+  "allowed_paths": ["components/iot-digital-twin/"],
+  "architect": {
+    "plan": "Inspect the dev IoT desired state and existing SSM-driven IoT/Lambda/DynamoDB module; review ingestion trust and persistent-state semantics without issuing certificates or planning deployment.",
+    "risk_flags": {
+      "delete": "unknown",
+      "replacement": "unknown",
+      "state_change": "no",
+      "iam_change": "unknown",
+      "network_exposure": "unknown",
+      "cost_change": "unknown"
+    },
+    "assumptions": ["No AWS account or profile selected; live resource actions cannot be inferred from static code."],
+    "required_human_decisions": ["Confirm sandbox identity, region, dev binding and exact desired-state revision before any separately scoped plan.", "Review DynamoDB retention/recovery and IoT certificate provisioning through a separately authorized human path."]
+  },
+  "builder": {"complete": false, "summary": "Example placeholder: complete only after authorized repository implementation/review."},
+  "reviews": {
+    "reviewer": {"summary": "", "findings": [], "blocking_findings": ["Actual diff/convention review required; example is not an assessment."]},
+    "security": {"summary": "", "findings": [], "blocking_findings": ["Review least privilege, principal/topic trust, replay/stale checks, logging, retries and certificate boundaries."]},
+    "operations": {"summary": "", "findings": [], "blocking_findings": ["Review rollback, DynamoDB data survival, retention, cost and post-change verification."]}
+  }
+}

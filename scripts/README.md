@@ -25,3 +25,14 @@ The existing module state bucket/lock table must already exist; backend provisio
 is a separate approved task. No check here authorizes an agent to mutate AWS.
 
 Use make verify/test/demo and read ../docs/evidence-and-evaluation.md for the enforced agent-safe workflow.
+
+## Bounded local role runner
+
+`python3 scripts/agent_workflow.py /PRIVATE/work-request.json` coordinates supplied
+role reports and fixed existing verification gates without AWS credentials.
+One `--remediate` continuation may follow repository fixes/fresh assessments.
+See [the guide](../docs/bounded-agent-workflow.md) and [.agent](../.agent/README.md).
+
+Existing components can be observed with `--evaluate COMPONENT --aws-config-dir
+../aws-config --config-path <relative-config.json> --assessment /PRIVATE/report.json`.
+This mode omits Builder and rejects remediation. See the guide for exact examples.
