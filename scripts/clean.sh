@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+[[ "${AGENT_MODE:-0}" == "0" && "${LOCAL_STATE_CLEANUP_APPROVED:-}" == "1" ]] || { echo "Local state cleanup requires reviewed operator approval and is blocked in agent mode" >&2; exit 1; }
+
 echo "🧹 Cleaning local Terraform and Terragrunt artifacts..."
 
 # Remove temp working directories used by deploy.sh

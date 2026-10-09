@@ -1,0 +1,6 @@
+{
+  "email-forwarding": {
+    "status": "incomplete",
+    "reason": "External source is application code, not a Terraform module; SES rules reference undeclared Lambda resources. No current aws-config instances. Preserve source as prototype; implement under a reviewed spec before promotion."
+  }
+}

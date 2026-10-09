@@ -1,0 +1,46 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.15.2",
+  "complete": true,
+  "errored": false,
+  "resource_changes": [
+    {
+      "address": "aws_ebs_volume.clickhouse_data",
+      "mode": "managed",
+      "type": "aws_ebs_volume",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "secret": "NEVER_INCLUDE_PLAN_VALUES"
+        },
+        "after": null
+      }
+    },
+    {
+      "address": "aws_instance.clickhouse",
+      "mode": "managed",
+      "type": "aws_instance",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {},
+        "after": null
+      }
+    },
+    {
+      "address": "aws_s3_bucket.backups",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "before": {},
+        "after": {}
+      }
+    }
+  ]
+}

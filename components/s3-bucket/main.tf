@@ -45,8 +45,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "sse" {
 }
 
 resource "aws_ssm_parameter" "runtime" {
-  name  = local.runtime_path
-  type  = "String"
+  name = local.runtime_path
+  type = "String"
   value = jsonencode({
     bucket_name = aws_s3_bucket.s3_bucket.bucket
   })

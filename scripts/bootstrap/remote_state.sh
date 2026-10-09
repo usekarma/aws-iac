@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+[[ "${AGENT_MODE:-0}" == "0" ]] || { echo "Agent mode blocks backend mutation" >&2; exit 1; }
+
+# Backend creation is a consequential AWS mutation, not a planning prerequisite.
+[[ "${AWS_MUTATION_APPROVED:-}" == "1" ]] || { echo "Explicit human approval required" >&2; exit 1; }
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+./scripts/preflight.sh
+export AWS_DEFAULT_REGION="$AWS_REGION" AWS_PAGER=""
+
 # Ensure AWS_PROFILE is set
 if [[ -z "${AWS_PROFILE:-}" ]]; then
   echo "❌ AWS_PROFILE must be set (e.g. export AWS_PROFILE=dev-iac)"
@@ -8,8 +16,8 @@ if [[ -z "${AWS_PROFILE:-}" ]]; then
 fi
 
 # Get current AWS account and region
-ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
-REGION=$(aws configure get region --profile "$AWS_PROFILE")
+ACCOUNT_ID="$EXPECTED_AWS_ACCOUNT"
+REGION="$AWS_REGION"
 
 if [[ -z "$REGION" ]]; then
   echo "❌ No region configured for AWS_PROFILE='$AWS_PROFILE'."

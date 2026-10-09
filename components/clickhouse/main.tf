@@ -108,7 +108,7 @@ data "aws_iam_policy_document" "backup" {
     ]
   }
   statement {
-    sid     = "S3BackupsRW"
+    sid = "S3BackupsRW"
     actions = [
       "s3:PutObject",
       "s3:GetObject",
@@ -205,7 +205,7 @@ resource "aws_ebs_volume" "data" {
   availability_zone = data.aws_subnet.chosen.availability_zone
   size              = local.ebs_size_gb
   type              = local.ebs_type
-  iops              = local.ebs_type == "gp3" ? local.ebs_iops       : null
+  iops              = local.ebs_type == "gp3" ? local.ebs_iops : null
   throughput        = local.ebs_type == "gp3" ? local.ebs_throughput : null
   encrypted         = true
 
@@ -259,21 +259,21 @@ resource "aws_instance" "clickhouse" {
 
     # Mongo (optional – empty/zero in ClickHouse-only mode)
     MONGO_HOST      = local.enable_mongo ? aws_instance.mongo[0].private_ip : ""
-    MONGO_EXP_PORT  = local.enable_mongo ? local.mongo_exporter_port        : 0
-    MONGO_NODE_PORT = local.enable_mongo ? local.mongo_nodeexp_port        : 0
+    MONGO_EXP_PORT  = local.enable_mongo ? local.mongo_exporter_port : 0
+    MONGO_NODE_PORT = local.enable_mongo ? local.mongo_nodeexp_port : 0
 
     # Redpanda (optional)
-    REDPANDA_HOST       = local.enable_redpanda ? aws_instance.redpanda[0].private_ip                       : ""
-    REDPANDA_EXP_PORT   = local.enable_redpanda ? local.redpanda_exporter_port                              : 0
-    REDPANDA_NODE_PORT  = local.enable_redpanda ? local.redpanda_nodeexp_port                               : 0
+    REDPANDA_HOST       = local.enable_redpanda ? aws_instance.redpanda[0].private_ip : ""
+    REDPANDA_EXP_PORT   = local.enable_redpanda ? local.redpanda_exporter_port : 0
+    REDPANDA_NODE_PORT  = local.enable_redpanda ? local.redpanda_nodeexp_port : 0
     REDPANDA_BROKERS    = local.enable_redpanda ? format("%s:%d", aws_instance.redpanda[0].private_ip, local.redpanda_port) : ""
-    REDPANDA_TOPIC      = local.enable_redpanda ? local.redpanda_topic                                      : 0
-    REDPANDA_PARTITIONS = local.enable_redpanda ? local.redpanda_partitions                                 : 0
-    REDPANDA_RETMS      = local.enable_redpanda ? local.redpanda_retention                                  : 0
+    REDPANDA_TOPIC      = local.enable_redpanda ? local.redpanda_topic : 0
+    REDPANDA_PARTITIONS = local.enable_redpanda ? local.redpanda_partitions : 0
+    REDPANDA_RETMS      = local.enable_redpanda ? local.redpanda_retention : 0
 
     # Connector / Mongo connection (optional)
-    MONGO_CONNECTION_STRING = local.enable_mongo    ? local.mongo_connection_string : ""
-    KCONNECT_HOST           = local.enable_kconnect ? local.kconnect_rest_host      : ""
+    MONGO_CONNECTION_STRING = local.enable_mongo ? local.mongo_connection_string : ""
+    KCONNECT_HOST           = local.enable_kconnect ? local.kconnect_rest_host : ""
 
     # Region for ClickHouse + AWS CLI (used by systemd drop-in)
     AWS_REGION = data.aws_region.current.id
@@ -378,20 +378,20 @@ resource "aws_ssm_parameter" "runtime" {
     subnet_id          = local.subnet_id,
 
     # Redpanda (nulls when disabled)
-    redpanda_instance_id       = local.enable_redpanda ? aws_instance.redpanda[0].id         : null,
+    redpanda_instance_id       = local.enable_redpanda ? aws_instance.redpanda[0].id : null,
     redpanda_private_ip        = local.enable_redpanda ? aws_instance.redpanda[0].private_ip : null,
-    redpanda_security_group_id = local.enable_redpanda ? aws_security_group.redpanda[0].id   : null,
-    redpanda_brokers           = local.enable_redpanda ? local.redpanda_brokers              : null,
+    redpanda_security_group_id = local.enable_redpanda ? aws_security_group.redpanda[0].id : null,
+    redpanda_brokers           = local.enable_redpanda ? local.redpanda_brokers : null,
 
     # MongoDB (nulls when disabled)
-    mongo_instance_id       = local.enable_mongo ? aws_instance.mongo[0].id         : null,
+    mongo_instance_id       = local.enable_mongo ? aws_instance.mongo[0].id : null,
     mongo_private_ip        = local.enable_mongo ? aws_instance.mongo[0].private_ip : null,
-    mongo_port              = local.enable_mongo ? local.mongo_port                 : null,
-    mongo_replset           = local.enable_mongo ? "rs0"                            : null,
+    mongo_port              = local.enable_mongo ? local.mongo_port : null,
+    mongo_replset           = local.enable_mongo ? "rs0" : null,
     mongo_rs_uri            = local.mongo_connection_string,
-    mongo_security_group_id = local.enable_mongo ? aws_security_group.mongo[0].id   : null,
+    mongo_security_group_id = local.enable_mongo ? aws_security_group.mongo[0].id : null,
     mongo_connection_string = local.mongo_connection_string,
-    kconnect_host           = local.enable_kconnect ? local.kconnect_rest_host      : null
+    kconnect_host           = local.enable_kconnect ? local.kconnect_rest_host : null
   })
 
   overwrite = true

@@ -1,7 +1,7 @@
 locals {
-  zone_name     = local.config.zone_name
-  comment       = try(local.config.comment, "Managed by Terraform")
-  root_records  = try(local.config.root_records, {})
+  zone_name    = local.config.zone_name
+  comment      = try(local.config.comment, "Managed by Terraform")
+  root_records = try(local.config.root_records, {})
 }
 
 resource "aws_route53_zone" "zone" {
@@ -56,8 +56,8 @@ resource "aws_route53_record" "cname" {
 
 # Outputs
 resource "aws_ssm_parameter" "runtime" {
-  name  = "/iac/route53-zone/${var.nickname}/runtime"
-  type  = "String"
+  name = "/iac/route53-zone/${var.nickname}/runtime"
+  type = "String"
   value = jsonencode({
     zone_id      = aws_route53_zone.zone.zone_id,
     zone_arn     = aws_route53_zone.zone.arn,

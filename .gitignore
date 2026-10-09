@@ -39,3 +39,10 @@ ehthumbs.db
 desktop.ini
 
 .venv
+
+# Private operational artifacts and Python caches
+artifacts/
+*.tfplan
+*plan.json
+__pycache__/
+*.pyc

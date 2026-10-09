@@ -326,8 +326,8 @@ resource "aws_lb_listener_rule" "logout" {
   condition {
     host_header {
       values = [
-        local.domain_name,                          # usekarma.dev (if you ever hit it directly)
-        format("*.%s", local.domain_name)           # *.usekarma.dev
+        local.domain_name,                # usekarma.dev (if you ever hit it directly)
+        format("*.%s", local.domain_name) # *.usekarma.dev
       ]
     }
   }

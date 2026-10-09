@@ -1,15 +1,15 @@
 locals {
-  cluster_nickname   = try(local.cfg.cluster_nickname, null)
-  vpc_nickname       = try(local.cfg.vpc_nickname, null)
+  cluster_nickname = try(local.config.cluster_nickname, null)
+  vpc_nickname     = try(local.config.vpc_nickname, null)
 
-  service_name       = try(local.cfg.service_name, "svc-${var.nickname}")
-  desired_count      = try(local.cfg.desired_count, 1)
-  cpu                = try(local.cfg.cpu, 256)
-  memory             = try(local.cfg.memory, 512)
-  platform_version   = try(local.cfg.platform_version, "LATEST")
-  assign_public_ip   = try(local.cfg.assign_public_ip, false)
+  service_name     = try(local.config.service_name, "svc-${var.nickname}")
+  desired_count    = try(local.config.desired_count, 1)
+  cpu              = try(local.config.cpu, 256)
+  memory           = try(local.config.memory, 512)
+  platform_version = try(local.config.platform_version, "LATEST")
+  assign_public_ip = try(local.config.assign_public_ip, false)
 
-  container          = try(local.cfg.container, {})
+  container          = try(local.config.container, {})
   container_name     = try(local.container.name, "app")
   container_image    = try(local.container.image, null)
   container_port     = try(local.container.port, null)
@@ -17,14 +17,14 @@ locals {
   container_secrets  = try(local.container.secrets, [])
   log_retention_days = try(local.container.log_group_retention_days, 14)
 
-  lb                 = try(local.cfg.load_balancer, {})
-  target_group_arn   = try(local.lb.target_group_arn, null)
+  lb               = try(local.config.load_balancer, {})
+  target_group_arn = try(local.lb.target_group_arn, null)
 
-  explicit_sgs       = try(local.cfg.security_groups, null)
+  explicit_sgs = try(local.config.security_groups, null)
 }
 
 locals {
-  cluster = try(jsondecode(data.aws_ssm_parameter.cluster_runtime.value), {})
+  cluster     = try(jsondecode(data.aws_ssm_parameter.cluster_runtime.value), {})
   cluster_arn = try(local.cluster.cluster_arn, null)
 }
 
@@ -33,7 +33,7 @@ locals {
   vpc_id                    = try(local.vpc.vpc_id, null)
   private_subnet_ids        = try(local.vpc.private_subnet_ids, null)
   public_subnet_ids         = try(local.vpc.public_subnet_ids, null)
-  default_security_group_id = try(local.vpc.default_security_group_id, null)
+  default_security_group_id = try(local.vpc.default_sg_id, null)
   service_security_groups   = local.explicit_sgs != null && length(local.explicit_sgs) > 0 ? local.explicit_sgs : [local.default_security_group_id]
 }
 
@@ -50,9 +50,9 @@ data "aws_iam_policy_document" "task_execution_assume" {
 }
 
 resource "aws_iam_role" "task_execution" {
-  name_prefix = "${local.service_name}-exec-"
+  name_prefix        = "${local.service_name}-exec-"
   assume_role_policy = data.aws_iam_policy_document.task_execution_assume.json
-  tags = local.tags
+  tags               = local.tags
 }
 
 # Attach the AWS managed policy for ECR/Logs
@@ -75,9 +75,9 @@ data "aws_iam_policy_document" "task_assume" {
 }
 
 resource "aws_iam_role" "task" {
-  name_prefix = "${local.service_name}-task-"
+  name_prefix        = "${local.service_name}-task-"
   assume_role_policy = data.aws_iam_policy_document.task_assume.json
-  tags = local.tags
+  tags               = local.tags
 }
 
 # ---------- Logs ----------
@@ -143,10 +143,10 @@ resource "aws_ecs_task_definition" "this" {
 
 # ---------- ECS Service ----------
 resource "aws_ecs_service" "this" {
-  name            = local.service_name
-  cluster         = local.cluster_arn
-  desired_count   = local.desired_count
-  launch_type     = "FARGATE"
+  name             = local.service_name
+  cluster          = local.cluster_arn
+  desired_count    = local.desired_count
+  launch_type      = "FARGATE"
   platform_version = local.platform_version
 
   network_configuration {
@@ -196,4 +196,13 @@ resource "aws_ssm_parameter" "runtime" {
   })
 
   tags = local.tags
+}
+
+# Runtime dependencies follow the same SSM component/nickname model as other modules.
+data "aws_ssm_parameter" "cluster_runtime" {
+  name = "${var.iac_prefix}/ecs-cluster/${local.cluster_nickname}/runtime"
+}
+
+data "aws_ssm_parameter" "vpc_runtime" {
+  name = "${var.iac_prefix}/vpc/${local.vpc_nickname}/runtime"
 }

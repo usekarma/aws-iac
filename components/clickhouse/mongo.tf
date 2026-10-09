@@ -56,8 +56,8 @@ locals {
   #
   # mongo-gen (git install)
   #
-  mongo_gen_repo_url    = try(local.config.mongo_gen_repo_url, "github.com/usekarma/mongo-gen.git")
-  mongo_gen_branch      = try(local.config.mongo_gen_branch, "main")
+  mongo_gen_repo_url = try(local.config.mongo_gen_repo_url, "github.com/usekarma/mongo-gen.git")
+  mongo_gen_branch   = try(local.config.mongo_gen_branch, "main")
   # IMPORTANT: this is an *SSM parameter name* (SecureString), not the token itself
   mongo_gen_token_param = try(local.config.mongo_gen_token_param, "")
 
