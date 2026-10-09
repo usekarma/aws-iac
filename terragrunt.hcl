@@ -5,7 +5,7 @@ locals {
   nickname       = get_env("TF_NICKNAME", "")
   iac_prefix     = get_env("IAC_PREFIX", "/iac")
 
-  source_path = "${get_repo_root()}/components/${local.component_name}"
+  source_path = "${get_repo_root()}//components/${local.component_name}"
 
   s3_bucket      = "${local.account_id}-tf-state"
   dynamodb_table = "${local.account_id}-tf-locks"

@@ -1,36 +1,11 @@
-#############################################
-# Lambda Component – main.tf
-#
-# Assumptions:
-# - header.tf already loads:
-#     - var.iac_prefix
-#     - var.component_name
-#     - var.nickname
-#     - local.config  (JSON from /<iac_prefix>/<component_name>/<nickname>/config)
-#     - local.tags
-#
-# - local.config.functions looks like:
-#   {
-#     "seed-sales-data": {
-#       "runtime": "python3.10",
-#       "handler": "main.handler",
-#       "memory_size": 1024,
-#       "timeout": 900,
-#       "src_type": "clickhouse",
-#       "src_nickname": "usekarma-dev",
-#       "vpc_nickname": "usekarma-dev"
-#     },
-#     ...
-#   }
-#############################################
-
-data "aws_region" "current" {}
+# Lambda declarations come from aws-config; IAM and deployment stay in aws-iac.
+# Every function requires a versioned artifact; no external code/runtime owner.
 
 data "aws_caller_identity" "current" {}
 
 locals {
   # All Lambda functions from the JSON config
-  functions = try(local.config.functions, {})
+  functions = local.config.functions
 
   # Subset of functions that declare a VPC nickname
   functions_with_vpc = {
@@ -115,7 +90,7 @@ resource "aws_iam_role_policy" "ssm_access" {
         ],
         # Example ARN:
         # arn:aws:ssm:us-east-1:123456789012:parameter/iac/*
-        Resource = "arn:aws:ssm:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:parameter${var.iac_prefix}/*"
+        Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.iac_prefix}/*"
       }
     ]
   })
@@ -146,80 +121,51 @@ resource "aws_iam_role_policy" "vpc_access" {
   })
 }
 
-#############################################
-# Lambda Functions (placeholders)
-#############################################
-
-resource "aws_lambda_function" "placeholder" {
-  for_each = local.functions
-
-  function_name = each.key
-  role          = aws_iam_role.lambda_exec[each.key].arn
-  handler       = each.value.handler
-  runtime       = each.value.runtime
-  memory_size   = each.value.memory_size
-  timeout       = each.value.timeout
-
-  # Tiny placeholder zip; real code is deployed via deploy_lambda.py
-  filename         = "${path.module}/empty.zip"
-  source_code_hash = filebase64sha256("${path.module}/empty.zip")
-
-  # Generic discovery env vars so the Lambda can:
-  # - resolve its source runtime (/iac/<SRC_TYPE>/<SRC_NICKNAME>/runtime)
-  # - know which VPC runtime to read (/iac/vpc/<VPC_NICKNAME>/runtime)
-  # - know the iac prefix and component at runtime if needed.
-  environment {
-    variables = {
-      SRC_TYPE       = try(each.value.src_type, "")
-      SRC_NICKNAME   = try(each.value.src_nickname, "")
-      VPC_NICKNAME   = try(each.value.vpc_nickname, "")
-      IAC_PREFIX     = var.iac_prefix
-      COMPONENT_NAME = var.component_name
+module "functions" {
+  source    = "../../modules/lambda"
+  functions = local.functions
+  bindings = {
+    for name, cfg in local.functions : name => {
+      function_name = name
+      role_arn      = aws_iam_role.lambda_exec[name].arn
+      environment = {
+        SRC_TYPE       = try(cfg.src_type, "")
+        SRC_NICKNAME   = try(cfg.src_nickname, "")
+        VPC_NICKNAME   = try(cfg.vpc_nickname, "")
+        IAC_PREFIX     = var.iac_prefix
+        COMPONENT_NAME = var.component_name
+      }
+      vpc = contains(keys(local.vpc_runtime_decoded), name) ? {
+        subnet_ids         = local.vpc_runtime_decoded[name].private_subnet_ids
+        security_group_ids = [local.vpc_runtime_decoded[name].default_sg_id]
+      } : null
     }
   }
-
-  # Only functions with a vpc_nickname get a vpc_config block.
-  dynamic "vpc_config" {
-    for_each = contains(keys(local.vpc_runtime_decoded), each.key) ? [1] : []
-
-    content {
-      subnet_ids         = local.vpc_runtime_decoded[each.key].private_subnet_ids
-      security_group_ids = [local.vpc_runtime_decoded[each.key].default_sg_id]
-    }
-  }
-
-  lifecycle {
-    # Code is managed out-of-band by deploy_lambda.py
-    ignore_changes = [filename, source_code_hash]
-  }
-
   tags = local.tags
+  depends_on = [
+    aws_iam_role_policy_attachment.basic_exec,
+    aws_iam_role_policy.ssm_access,
+    aws_iam_role_policy.vpc_access,
+  ]
 }
 
-#############################################
-# Runtime SSM Params (owned structurally by Terraform,
-# value content owned by deploy_lambda.py)
-#############################################
+moved {
+  from = aws_lambda_function.placeholder
+  to   = module.functions.aws_lambda_function.this
+}
 
 resource "aws_ssm_parameter" "runtime" {
   for_each = local.functions
-
-  # e.g. /iac/lambda/seed-sales-data/runtime
-  name = "${var.iac_prefix}/${var.component_name}/${each.key}/runtime"
-  type = "String"
-
-  # Default placeholder value; deploy_lambda.py will overwrite this
-  # with {"arn": "..."} etc.  Terraform won't try to revert it.
+  name     = "${var.iac_prefix}/${var.component_name}/${each.key}/runtime"
+  type     = "String"
   value = jsonencode({
-    function_name = aws_lambda_function.placeholder[each.key].function_name,
-    placeholder   = true
+    function_name = module.functions.functions[each.key].function_name
+    arn           = module.functions.functions[each.key].arn
+    invoke_arn    = module.functions.functions[each.key].invoke_arn
+    artifact      = each.value.artifact
+    runtime       = each.value.runtime
+    handler       = each.value.handler
   })
-
   overwrite = true
   tier      = "Standard"
-
-  lifecycle {
-    # Let deploy_lambda.py own the actual contents
-    ignore_changes = [value]
-  }
 }

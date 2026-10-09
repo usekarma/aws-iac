@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lambda declaration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runtime",
+    "handler",
+    "memory_size",
+    "timeout",
+    "log_retention_days",
+    "artifact"
+  ],
+  "properties": {
+    "runtime": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9.]+$"
+    },
+    "handler": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"
+    },
+    "memory_size": {
+      "type": "integer",
+      "minimum": 128,
+      "maximum": 10240
+    },
+    "timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 900
+    },
+    "log_retention_days": {
+      "enum": [
+        1,
+        3,
+        5,
+        7,
+        14,
+        30,
+        60,
+        90,
+        120,
+        150,
+        180,
+        365,
+        400,
+        545,
+        731,
+        1096,
+        1827,
+        2192,
+        2557,
+        2922,
+        3288,
+        3653
+      ]
+    },
+    "environment": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_]+$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "s3_bucket",
+        "s3_key",
+        "s3_object_version",
+        "source_code_hash"
+      ],
+      "properties": {
+        "s3_bucket": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+        },
+        "s3_key": {
+          "type": "string",
+          "pattern": "^(?!.*(?:^|/)empty\\.zip$).+\\.zip$"
+        },
+        "s3_object_version": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "enum": [
+              "null",
+              "latest"
+            ]
+          }
+        },
+        "source_code_hash": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{43}=$"
+        }
+      }
+    },
+    "src_type": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+$"
+    },
+    "src_nickname": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+$"
+    },
+    "vpc_nickname": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+$"
+    }
+  }
+}

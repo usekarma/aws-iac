@@ -1,0 +1,16 @@
+{
+  "runtime": "python3.12",
+  "handler": "app.lambda_handler",
+  "memory_size": 512,
+  "timeout": 30,
+  "log_retention_days": 14,
+  "environment": {
+    "EXPECTED_PRINCIPAL": "synthetic-principal"
+  },
+  "artifact": {
+    "s3_bucket": "synthetic-artifacts",
+    "s3_key": "synthetic-revision/iot-digital-twin-ingest.zip",
+    "s3_object_version": "synthetic-object-version",
+    "source_code_hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  }
+}

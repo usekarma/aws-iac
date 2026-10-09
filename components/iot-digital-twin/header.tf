@@ -24,6 +24,8 @@ locals {
     try(local.config.tags, {})
   )
 
+  ingest_function = local.config.ingest_function
+
   config_path  = data.aws_ssm_parameter.config.name
   runtime_path = "${var.iac_prefix}/${var.component_name}/${var.nickname}/runtime"
 

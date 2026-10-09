@@ -27,3 +27,14 @@ The module intentionally does not create an AWS IoT certificate or principal att
 ## Teardown
 
 This repository never performs apply or destroy operations during validation. A real sandbox can be torn down later by the authorized operator after the config and runtime metadata have been reviewed and approved.
+
+## Runtime artifact integration
+
+The ingestion Lambda now uses aws-iac's shared Lambda module and requires an
+explicit `ingest_function` declaration. Runtime source remains in aws-lambda;
+no placeholder ZIP or local-path fallback exists. The runtime requires
+`python3.12`, `app.lambda_handler`, `iot-digital-twin-ingest.zip`, an exact
+expected principal, derived device identity/table and a matching telemetry topic.
+See [the declaration/handoff contract](../../docs/lambda-artifact-contract.md).
+Merged aws-config contract v1 is structurally compatible; its unresolved
+artifact and trusted principal still block planning. Certificate attachment and TwinMaker remain excluded/deferred.
