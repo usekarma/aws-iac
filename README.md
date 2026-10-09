@@ -136,7 +136,8 @@ an AWS account, invoke cloud operations or change the deployment safety boundary
 
 The [Identity Center permission-set component](components/identity-center-permission-set/README.md)
 declares scoped planning access in the owner account. An explicit human-only,
-plan-only bootstrap uses the reviewed local declaration without SSM prerequisites.
+bootstrap uses the reviewed local declaration without SSM prerequisites; saved-plan
+apply additionally requires separate mutation approval and a sealed review digest.
 Normal agents retain the existing restricted-IAM/SSM/Terragrunt workflow; bootstrap
 acknowledgement does not authorize permission-set creation or assignment.
 

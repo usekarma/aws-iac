@@ -17,9 +17,10 @@ IaCPlanReadOnly. Agents never use this bootstrap path. After IaCPlanReadOnly
 exists, normal agent workload planning uses the restricted role.
 HUMAN_BOOTSTRAP_APPROVED=1 authorizes human entry only, never apply.
 AGENT_MODE=1 always rejects bootstrap, even with inherited mutation approval.
-No bootstrap apply command is implemented. Eventual mutation needs a separate
-reviewed human path, current saved-plan review and AWS_MUTATION_APPROVED=1 after
-explicit approval; the bootstrap acknowledgement alone is insufficient.
+The explicit saved-plan apply path requires BOTH acknowledgements, a reviewed
+external manifest digest and all integrity/live identity checks. The bootstrap
+acknowledgement alone is insufficient. Implementing this path is not permission
+for an agent to execute it.
 
 ## Exact reviewed target
 
@@ -89,9 +90,9 @@ python3 scripts/bootstrap_identity_center.py plan identity-center-permission-set
 
 The planner writes the exact saved review.tfplan, private terraform.log and
 plan.json, filtered discovery/context and evidence JSON/Markdown. Review both the
-resource list and values privately, record the digest and stop. No apply command
-is provided by this change. Bootstrap acknowledgement does not authorize a saved
-plan execution. Human approval of any future concrete apply is still required.
+resource list and values privately, seal exact inputs and record the manifest
+digest externally. Bootstrap acknowledgement does not authorize saved-plan
+execution. Separate human approval of the concrete apply is still required.
 
 After separately approved provisioning/assignment, configure strall-dev-plan and
 verify account/role/read-only grants. Then ordinary agent workload planning uses
@@ -122,3 +123,51 @@ Python Ruff format/lint pass. Terraform 1.15.2, Terragrunt 0.83.2, AWS provider
 No live human bootstrap invocation, AWS calls, config publication, apply or
 profile edits occurred. Agent mode remained enabled for this task; test fixtures
 mock human environments/tools without authorizing real bootstrap operations.
+
+## Human-only saved-plan apply extension
+
+The requesting human identified review-uhd86fs8 as reviewed: three creates, no
+changes/deletes. Its original binary/JSON evidence digests and checked-in component
+snapshots match; no source/resource or declaration changes are needed for apply.
+The bundle predates manifests. The explicit human `seal` action verifies archived
+configuration/provider lock, original evidence/context, repository identity/commit
+ancestry, checked-in configuration, local backend and binary export/JSON equality.
+It creates an exclusive read-only manifest without changing the plan or evidence.
+Its SHA-256 must be reviewed and held independently; apply rejects a different
+manifest even if someone recomputes all internal file hashes. Permission bits and
+self-reported context are not independently authenticated approval evidence.
+
+Apply accepts only a real review-* directory under this repository's bootstrap
+artifact root, never an arbitrary tfplan. Both human flags and AGENT_MODE=0 are
+required before any tools are invoked. It hashes every material bundle input plus
+current scripts/declaration, validates repository/commit ancestry and component
+identity, re-exports the saved binary and verifies exact three-create resource
+TYPES/addresses, instance/name/duration, policy and USER/account. New local state,
+workspace/backend/variable overrides, changes/deletes/replacements/managed-policy
+attachments or existing IaCPlanReadOnly all stop execution. STS and Identity Center
+discovery repeat immediately before apply. No replan/init is allowed during apply.
+
+The only mutation entrypoint is Terraform apply of the exact saved review.tfplan.
+After success, read-only verification checks existence/PT1H, exact inline policy,
+empty AWS/customer-managed policy lists and the reviewed USER assignment. Private
+apply.log and post-apply.json record results. Failure may follow partial mutation;
+never retry/apply/destroy automatically, configure profiles or perform SSO login.
+Retain local state securely. No instance, Identity Store, SSM or workload mutation
+is separately invoked by this control-plane path.
+
+The component README contains the exact two-step seal/apply commands. The agent
+only implements and tests this path using mocks and local read-only inspection;
+no sealing of the actual bundle or AWS apply is authorized in this task.
+
+## Apply-path local validation (2026-10-09)
+
+make verify and make test pass with AWS_CONFIG_DIR=../aws-config: 84 Python
+tests, one existing skip. Ruff format/lint, recursive Terraform formatting and
+diff whitespace checks pass. Backend-disabled Terraform validation passes with
+Terraform 1.15.2 / AWS provider 6.68.0. The component Terraform definitions and
+reviewed declaration are unchanged by this apply extension. Local read-only
+Terraform show confirmed the existing saved binary exports exactly to the
+reviewed plan.json; original evidence digests still match. No real manifest was
+created, no live AWS calls or apply occurred, and normal deployment scripts and
+AGENTS.md remain unchanged. Apply/postflight executions in tests use mocked tools
+and synthetic temporary bundles only.

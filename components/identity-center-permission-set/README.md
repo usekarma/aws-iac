@@ -37,12 +37,11 @@ python3 scripts/bootstrap_identity_center.py plan identity-center-permission-set
 ```
 
 HUMAN_BOOTSTRAP_APPROVED acknowledges use of this human-only path. It is **not**
-Terraform apply approval. The entrypoint accepts only `plan` and this component;
-apply/destroy/other components/extra options are rejected. Inherited
-AWS_MUTATION_APPROVED does not enable an apply command. No bootstrap apply path
-is implemented in this PR: it stops at plan review. Eventual execution needs a
-separately reviewed human path and AWS_MUTATION_APPROVED=1 after actual approval.
-No single flag may authorize both bootstrap entry and mutation.
+Terraform apply approval. Only this component supports the explicit `plan`, `seal`
+and saved-plan `apply` actions. Destroy, other components and extra Terraform
+arguments are rejected. Apply requires BOTH HUMAN_BOOTSTRAP_APPROVED=1 and
+AWS_MUTATION_APPROVED=1 after actual human approval, plus the independently recorded
+review-manifest digest. No single flag authorizes both bootstrap entry and mutation.
 
 The planner:
 
@@ -71,6 +70,70 @@ created to make this work. No AWS mutation is performed by bootstrap planning.
 A bootstrap failure is not evidence that a resource is absent. Inspect the exact
 private error before expanding any permissions. The live planner is for the
 human to run; agents validate it only through mocks.
+
+## Seal the existing review bundle, then separately approve apply
+
+```text
+human bootstrap plan → saved review bundle → seal exact inputs
+  → human reviews plan and records manifest SHA-256 outside the bundle
+  → separate AWS_MUTATION_APPROVED=1 approval → apply exact saved tfplan
+  → read-only post-apply verification → bootstrap ends
+```
+
+The already-reviewed bundle is
+`artifacts/identity-center-bootstrap/review-uhd86fs8`. It predates manifests.
+The human first runs this LOCAL, non-mutating seal operation after reviewing the
+updated code; it never regenerates or replaces review.tfplan, plan.json or evidence:
+
+```bash
+AGENT_MODE=0 HUMAN_BOOTSTRAP_APPROVED=1 \
+AWS_PROFILE=identity-center-admin AWS_REGION=us-east-1 \
+EXPECTED_AWS_ACCOUNT=835990279085 \
+python3 scripts/bootstrap_identity_center.py seal identity-center-permission-set \
+  --review-dir /home/ted/dev/aws-iac/artifacts/identity-center-bootstrap/review-uhd86fs8
+```
+
+Seal verifies original evidence digests, context/component identity, commit
+ancestry, checked-in component/declaration equality, provider lock/local-backend
+metadata and source archived inside the saved plan. It re-exports the binary plan
+with `terraform show` and requires exact equality with the reviewed JSON, its
+variables and the three-create policy/assignment scope. It creates a new manifest
+exclusively, marks it read-only and records SHA-256 for the binary, JSON, context,
+evidence, component snapshots, variable inputs, local-backend metadata, lock file
+and relevant checked-in scripts/declaration. Existing manifests are never replaced.
+
+Record the displayed manifest digest separately after review. File permissions
+alone are not tamper-proof: apply requires the external reviewed digest, so do not
+calculate a new digest from potentially changed files just before apply. Changed
+inputs require fresh review; never silently reseal to bypass rejection.
+
+ONLY after explicit human approval of this exact saved plan, set the recorded
+REVIEWED_MANIFEST_SHA256 and personally run:
+
+```bash
+AGENT_MODE=0 HUMAN_BOOTSTRAP_APPROVED=1 AWS_MUTATION_APPROVED=1 \
+AWS_PROFILE=identity-center-admin AWS_REGION=us-east-1 \
+EXPECTED_AWS_ACCOUNT=835990279085 \
+python3 scripts/bootstrap_identity_center.py apply identity-center-permission-set \
+  --review-dir /home/ted/dev/aws-iac/artifacts/identity-center-bootstrap/review-uhd86fs8 \
+  --manifest-sha256 "${REVIEWED_MANIFEST_SHA256:?Set the independently reviewed digest}"
+```
+
+Apply rejects arbitrary plan paths, missing/tampered files, component/config/script
+changes, new state/workspace overrides and every non-create/unexpected resource.
+It checks STS and instance/permission-set names again; existing IaCPlanReadOnly
+stops stale-plan execution. It repeats hashes just before mutation, then invokes
+only `terraform apply -input=false -no-color review.tfplan` in the reviewed
+snapshot. No init, plan regeneration, auto-approve or AWS write precedes apply.
+Saved-plan execution has no native confirmation prompt: the two approvals and
+external digest are the human execution boundary.
+
+After success, read-only APIs verify PT1H, exact policy, empty AWS/customer-managed
+policy attachment lists and the exact USER/account assignment. Private apply.log
+and post-apply.json record the result. Verification failure is reported as failure
+after mutation, never rolled back or retried automatically. A partial apply requires
+state/log inspection and a separately reviewed recovery operation. No CLI profile
+edit, SSO login, artifact upload or normal workflow is triggered.
 
 ## State ownership and eventual execution
 

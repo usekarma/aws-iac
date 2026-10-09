@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicit HUMAN-only, plan-only bootstrap of the reviewed planning identity."""
+"""Explicit HUMAN-only plan, seal and saved-plan apply for the planning identity."""
 
 import argparse
 import hashlib
@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 from evidence import generate, load
 
@@ -154,6 +155,8 @@ def validate_plan(plan, config):
             "Unexpected managed resources; require exactly the three bootstrap resources"
         )
     for resource in resources:
+        if resource.get("type") != resource["address"].split(".")[0]:
+            raise ValueError("Unexpected bootstrap resource type")
         if resource["change"]["actions"] != ["create"]:
             raise ValueError("Bootstrap permits only creates; change/delete/replacement rejected")
         after = resource["change"]["after"]
@@ -175,6 +178,338 @@ def validate_plan(plan, config):
                 raise ValueError("Plan permission-set name/duration differs")
         elif json.loads(after["inline_policy"]) != config["inline_policy"]:
             raise ValueError("Planned inline policy differs from reviewed policy")
+
+
+def sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def review_directory(path):
+    raw = Path(path)
+    work = raw.resolve(strict=True)
+    base = (ROOT / "artifacts/identity-center-bootstrap").resolve()
+    if (
+        raw.is_symlink()
+        or not base.is_relative_to(ROOT.resolve())
+        or work.parent != base
+        or not work.name.startswith("review-")
+        or not work.is_dir()
+    ):
+        raise ValueError("Use a real bootstrap review directory inside this repository")
+    return work
+
+
+def git(*args):
+    return subprocess.check_output(["git", "-C", str(ROOT), *args], text=True).strip()
+
+
+def repository_identity():
+    origin = git("config", "--get", "remote.origin.url")
+    if origin not in (
+        "git@github.com:usekarma/aws-iac.git",
+        "https://github.com/usekarma/aws-iac.git",
+        "https://github.com/usekarma/aws-iac",
+    ):
+        raise ValueError("Bootstrap repository must be usekarma/aws-iac")
+    return {"name": "usekarma/aws-iac", "commit": git("rev-parse", "HEAD")}
+
+
+def verify_ancestor(commit):
+    if not re.fullmatch(r"[0-9a-f]{40}", commit or ""):
+        raise ValueError("Review bundle lacks a valid repository commit")
+    subprocess.run(
+        ["git", "-C", str(ROOT), "merge-base", "--is-ancestor", commit, "HEAD"],
+        check=True,
+        capture_output=True,
+    )
+
+
+def bundle_files(work):
+    names = {
+        "review.tfplan",
+        "plan.json",
+        "context.json",
+        "discovery.json",
+        "bootstrap.tfvars.json",
+        "bootstrap_override.tf",
+        ".terraform.lock.hcl",
+        ".terraform/terraform.tfstate",
+        "evidence/evidence.json",
+        "evidence/summary.md",
+    } | {p.name for p in (ROOT / "components" / COMPONENT).glob("*.tf")}
+    for name in names:
+        path = work / name
+        if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(work):
+            raise ValueError("Missing or unsafe review file: " + name)
+    if {p.name for p in work.glob("*.tf")} != {n for n in names if n.endswith(".tf")}:
+        raise ValueError("Unexpected Terraform configuration in review directory")
+    if (
+        (work / "terraform.tfstate").exists()
+        or list(work.glob("*.auto.tfvars*"))
+        or list(work.glob("*.tf.json"))
+    ):
+        raise ValueError(
+            "Review directory has state or automatic variable overrides; stop for review"
+        )
+    backend = load(work / ".terraform/terraform.tfstate").get("backend", {})
+    if (
+        backend.get("type") != "local"
+        or backend.get("config") != {"path": None, "workspace_dir": None}
+        or (work / ".terraform/environment").exists()
+    ):
+        raise ValueError(
+            "Bootstrap backend/workspace metadata changed; only default local state is permitted"
+        )
+    return sorted(names)
+
+
+def read_saved_plan(work, env):
+    result = subprocess.run(
+        ["terraform", "show", "-json", "review.tfplan"],
+        cwd=work,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        raise ValueError("Cannot re-export saved plan; no mutation permitted")
+    return json.loads(result.stdout)
+
+
+def validate_bundle(work, env):
+    files = bundle_files(work)
+    config = load(ROOT / DECLARATION)
+    validate_declaration(config)
+    context = load(work / "context.json")
+    expected_context = {
+        "account": OWNER,
+        "profile": env["AWS_PROFILE"],
+        "region": "us-east-1",
+        "component": COMPONENT,
+        "nickname": "owner-iac-plan-readonly",
+    }
+    if context.get("synthetic") is not False or any(
+        context.get(k) != v for k, v in expected_context.items()
+    ):
+        raise ValueError("Review context identity differs from this bootstrap")
+    evidence = load(work / "evidence/evidence.json")
+    verify_ancestor(evidence.get("repository_commit"))
+    if (
+        evidence.get("source", {}).get("synthetic") is not False
+        or evidence["source"].get("saved_plan_sha256") != sha256(work / "review.tfplan")
+        or evidence["source"].get("plan_json_sha256") != sha256(work / "plan.json")
+    ):
+        raise ValueError("Original evidence hashes differ from saved plan/JSON")
+    if (
+        evidence.get("context") != {key: context[key] for key in evidence.get("context", {})}
+        or evidence.get("context", {}).get("component") != COMPONENT
+    ):
+        raise ValueError("Evidence context differs from review context")
+    for source in (ROOT / "components" / COMPONENT).glob("*.tf"):
+        if source.read_bytes() != (work / source.name).read_bytes():
+            raise ValueError("Component changed since planning; require a new reviewed plan")
+    expected_vars = {
+        "component_name": COMPONENT,
+        "nickname": "owner-iac-plan-readonly",
+        "region": "us-east-1",
+        "administration_account_id": OWNER,
+        "bootstrap_config_json": json.dumps(config),
+    }
+    if load(work / "bootstrap.tfvars.json") != expected_vars:
+        raise ValueError("Review declaration variables differ from checked-in declaration")
+    if (work / "bootstrap_override.tf").read_text() != 'terraform {\n  backend "local" {}\n}\n':
+        raise ValueError("Bootstrap must retain its reviewed local backend")
+    with zipfile.ZipFile(work / "review.tfplan") as archive:
+        if len(archive.namelist()) != len(set(archive.namelist())):
+            raise ValueError("Saved plan archive contains duplicate entries")
+        expected_sources = {"tfconfig/m-/" + name for name in files if name.endswith(".tf")}
+        actual_sources = {
+            name
+            for name in archive.namelist()
+            if name.startswith("tfconfig/") and name.endswith((".tf", ".tf.json"))
+        }
+        if actual_sources != expected_sources:
+            raise ValueError("Saved plan contains unexpected Terraform source")
+        for name in expected_sources:
+            if archive.read(name) != (work / name.removeprefix("tfconfig/m-/")).read_bytes():
+                raise ValueError("Saved plan source differs from reviewed component snapshot")
+        if archive.read(".terraform.lock.hcl") != (work / ".terraform.lock.hcl").read_bytes():
+            raise ValueError("Provider lock differs from saved plan")
+    stored = load(work / "plan.json")
+    exported = read_saved_plan(work, env)
+    if exported != stored:
+        raise ValueError("Saved binary plan does not match reviewed plan.json")
+    validate_plan(exported, config)
+    variables = {k: v["value"] for k, v in exported.get("variables", {}).items()}
+    if any(variables.get(k) != v for k, v in expected_vars.items()):
+        raise ValueError("Saved plan variables differ from reviewed declaration")
+    return files
+
+
+def seal_bundle(env, path):
+    guard(env)
+    work = review_directory(path)
+    manifest_path = work / "review-manifest.json"
+    if manifest_path.exists():
+        raise ValueError("Manifest already exists; never overwrite or silently reseal review")
+    files = validate_bundle(work, env)
+    manifest = {
+        "schema_version": 1,
+        "component": COMPONENT,
+        "account": OWNER,
+        "review_directory": str(work),
+        "repository": repository_identity(),
+        "files": {name: sha256(work / name) for name in files},
+        "repository_inputs": {
+            name: sha256(ROOT / name)
+            for name in [DECLARATION, "scripts/bootstrap_identity_center.py", "scripts/evidence.py"]
+        },
+    }
+    os.umask(0o077)
+    with manifest_path.open("x") as output:
+        output.write(json.dumps(manifest, indent=2) + "\n")
+    manifest_path.chmod(0o400)
+    print(
+        "Review manifest created without regenerating the plan. Record/review this SHA-256: "
+        + sha256(manifest_path)
+    )
+    return sha256(manifest_path)
+
+
+def verify_manifest(work, expected_digest):
+    manifest_path = work / "review-manifest.json"
+    if (
+        not re.fullmatch(r"[0-9a-f]{64}", expected_digest or "")
+        or manifest_path.is_symlink()
+        or sha256(manifest_path) != expected_digest
+    ):
+        raise ValueError("Manifest differs from explicitly supplied reviewed digest")
+    manifest = load(manifest_path)
+    if (
+        manifest.get("schema_version") != 1
+        or manifest.get("component") != COMPONENT
+        or manifest.get("account") != OWNER
+        or manifest.get("review_directory") != str(work)
+        or manifest.get("repository", {}).get("name") != repository_identity()["name"]
+    ):
+        raise ValueError("Manifest repository/component/target identity mismatch")
+    verify_ancestor(manifest["repository"]["commit"])
+    if set(manifest["files"]) != set(bundle_files(work)):
+        raise ValueError("Manifest review file inventory differs")
+    for name, digest in manifest["files"].items():
+        if sha256(work / name) != digest:
+            raise ValueError("Review input changed after sealing: " + name)
+    expected_inputs = {DECLARATION, "scripts/bootstrap_identity_center.py", "scripts/evidence.py"}
+    if set(manifest.get("repository_inputs", {})) != expected_inputs:
+        raise ValueError("Manifest repository input inventory differs")
+    for name, digest in manifest["repository_inputs"].items():
+        if sha256(ROOT / name) != digest:
+            raise ValueError("Repository review input changed after sealing: " + name)
+
+
+def postflight(env, work, config):
+    result_path = work / "post-apply.json"
+    try:
+        matches = []
+        for arn in aws(env, "sso-admin", "list-permission-sets", "--instance-arn", INSTANCE)[
+            "PermissionSets"
+        ]:
+            item = aws(
+                env,
+                "sso-admin",
+                "describe-permission-set",
+                "--instance-arn",
+                INSTANCE,
+                "--permission-set-arn",
+                arn,
+            )["PermissionSet"]
+            if item["Name"] == "IaCPlanReadOnly":
+                matches.append(item)
+        if len(matches) != 1 or matches[0].get("SessionDuration") != "PT1H":
+            raise ValueError("Postflight permission set/duration mismatch")
+        arn = matches[0]["PermissionSetArn"]
+        args = ("--instance-arn", INSTANCE, "--permission-set-arn", arn)
+        policy = aws(env, "sso-admin", "get-inline-policy-for-permission-set", *args)[
+            "InlinePolicy"
+        ]
+        managed = aws(env, "sso-admin", "list-managed-policies-in-permission-set", *args)[
+            "AttachedManagedPolicies"
+        ]
+        customer = aws(
+            env, "sso-admin", "list-customer-managed-policy-references-in-permission-set", *args
+        )["CustomerManagedPolicyReferences"]
+        assignments = aws(
+            env, "sso-admin", "list-account-assignments", *args, "--account-id", "623155450153"
+        )["AccountAssignments"]
+        if json.loads(policy) != config["inline_policy"] or managed or customer:
+            raise ValueError("Postflight policy mismatch or managed policies attached")
+        if not any(
+            a.get("AccountId") == "623155450153"
+            and a.get("PrincipalType") == "USER"
+            and a.get("PrincipalId") == PRINCIPAL
+            for a in assignments
+        ):
+            raise ValueError("Postflight USER assignment missing")
+        result_path.write_text(
+            json.dumps(
+                {
+                    "status": "verified",
+                    "account": OWNER,
+                    "permission_set_arn": arn,
+                    "inline_policy_exact": True,
+                    "managed_policies": [],
+                    "customer_managed_policies": [],
+                    "session_duration": "PT1H",
+                    "target_account": "623155450153",
+                    "principal_type": "USER",
+                    "principal_id": PRINCIPAL,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        result_path.write_text(
+            json.dumps({"status": "failed", "reason": str(exc), "mutation_already_performed": True})
+            + "\n"
+        )
+        raise
+
+
+def apply_bootstrap(env, path, manifest_digest):
+    guard(env)
+    if env.get("AWS_MUTATION_APPROVED") != "1":
+        raise ValueError(
+            "Apply additionally requires AWS_MUTATION_APPROVED=1 after explicit approval"
+        )
+    env = env | {
+        "AWS_DEFAULT_REGION": "us-east-1",
+        "AWS_PAGER": "",
+        "AWS_EC2_METADATA_DISABLED": "true",
+    }
+    os.umask(0o077)
+    work = review_directory(path)
+    verify_manifest(work, manifest_digest)
+    validate_bundle(work, env)
+    discover(env)
+    # Repeat digest checks immediately before mutation; never init or replan here.
+    verify_manifest(work, manifest_digest)
+    with (work / "apply.log").open("x") as log:
+        result = subprocess.run(
+            ["terraform", "apply", "-input=false", "-no-color", "review.tfplan"],
+            cwd=work,
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+    if result.returncode:
+        raise ValueError(
+            "Apply failed and may be partial; inspect private apply.log/state. Do not retry automatically."
+        )
+    postflight(env, work, load(ROOT / DECLARATION))
+    print(
+        "Human bootstrap apply and read-only postflight completed. Retain local state; no profile configured."
+    )
 
 
 def plan_bootstrap(env):
@@ -268,22 +603,44 @@ def plan_bootstrap(env):
     (work / "context.json").write_text(json.dumps(context, indent=2) + "\n")
     generate(work / "plan.json", work / "context.json", work / "evidence", work / "review.tfplan")
     print(
-        "STOP_FOR_HUMAN: 3 creates, 0 changes, 0 deletes. Review private plan/evidence; no apply path is provided."
+        "STOP_FOR_HUMAN: 3 creates, 0 changes, 0 deletes. Seal/review this bundle before any separately approved apply."
     )
     return work
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["plan"])
+    parser.add_argument("action", choices=["plan", "seal", "apply"])
     parser.add_argument("component", choices=[COMPONENT])
-    parser.parse_args()
-    plan_bootstrap(dict(os.environ))
+    parser.add_argument("--review-dir")
+    parser.add_argument("--manifest-sha256")
+    args = parser.parse_args()
+    if args.action == "plan":
+        if args.review_dir or args.manifest_sha256:
+            parser.error("plan does not accept review/apply arguments")
+        plan_bootstrap(dict(os.environ))
+    elif not args.review_dir:
+        parser.error("seal/apply requires --review-dir")
+    elif args.action == "seal":
+        if args.manifest_sha256:
+            parser.error("seal does not accept a manifest digest")
+        seal_bundle(dict(os.environ), args.review_dir)
+    elif not args.manifest_sha256:
+        parser.error("apply requires the independently reviewed --manifest-sha256")
+    else:
+        apply_bootstrap(dict(os.environ), args.review_dir, args.manifest_sha256)
 
 
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+    except (
+        ValueError,
+        OSError,
+        KeyError,
+        TypeError,
+        zipfile.BadZipFile,
+        subprocess.SubprocessError,
+    ) as exc:
         print("STOP_FOR_HUMAN: " + str(exc), file=sys.stderr)
         sys.exit(1)

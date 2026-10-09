@@ -10,11 +10,294 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 bootstrap = importlib.import_module("bootstrap_identity_center")
+
+
+class BootstrapApplyTests(unittest.TestCase):
+    def setUp(self):
+        BootstrapTests.setUp(self)
+        self.env["AWS_MUTATION_APPROVED"] = "1"
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / "examples").mkdir()
+        shutil.copy(ROOT / bootstrap.DECLARATION, self.root / bootstrap.DECLARATION)
+        shutil.copytree(
+            ROOT / "components" / bootstrap.COMPONENT,
+            self.root / "components" / bootstrap.COMPONENT,
+        )
+        (self.root / "scripts").mkdir()
+        for name in ("bootstrap_identity_center.py", "evidence.py"):
+            shutil.copy(ROOT / "scripts" / name, self.root / "scripts" / name)
+        self.work = self.root / "artifacts/identity-center-bootstrap/review-test"
+        self.work.mkdir(parents=True)
+        for source in (self.root / "components" / bootstrap.COMPONENT).glob("*.tf"):
+            shutil.copy(source, self.work / source.name)
+        (self.work / "bootstrap_override.tf").write_text('terraform {\n  backend "local" {}\n}\n')
+        (self.work / ".terraform.lock.hcl").write_text("synthetic-provider-lock\n")
+        (self.work / ".terraform").mkdir()
+        (self.work / ".terraform/terraform.tfstate").write_text(
+            json.dumps(
+                {"backend": {"type": "local", "config": {"path": None, "workspace_dir": None}}}
+            )
+        )
+        self.variables = {
+            "component_name": bootstrap.COMPONENT,
+            "nickname": "owner-iac-plan-readonly",
+            "region": "us-east-1",
+            "administration_account_id": bootstrap.OWNER,
+            "bootstrap_config_json": json.dumps(self.config),
+        }
+        (self.work / "bootstrap.tfvars.json").write_text(json.dumps(self.variables))
+        self.plan = BootstrapTests.fixture_plan(self)
+        self.plan["variables"] = {k: {"value": v} for k, v in self.variables.items()}
+        context = json.loads((ROOT / "examples/review-context.synthetic.json").read_text())
+        context.update(
+            account=bootstrap.OWNER,
+            profile=self.env["AWS_PROFILE"],
+            region="us-east-1",
+            component=bootstrap.COMPONENT,
+            nickname="owner-iac-plan-readonly",
+            synthetic=False,
+        )
+        (self.work / "context.json").write_text(json.dumps(context))
+        (self.work / "discovery.json").write_text(json.dumps({"identity": self.identity}))
+        self.rebuild_plan()
+        self.calls = []
+        self.postflight_calls = []
+        for patcher in (
+            patch.object(bootstrap, "ROOT", self.root),
+            patch.object(
+                bootstrap,
+                "repository_identity",
+                return_value={"name": "usekarma/aws-iac", "commit": "b" * 40},
+            ),
+            patch.object(bootstrap, "verify_ancestor"),
+            patch.object(bootstrap.subprocess, "run", side_effect=self.terraform),
+            patch.object(bootstrap, "aws", side_effect=self.fake_aws),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        previous_umask = os.umask(0o077)
+        self.addCleanup(os.umask, previous_umask)
+
+    def rebuild_plan(self):
+        with zipfile.ZipFile(self.work / "review.tfplan", "w") as archive:
+            for source in self.work.glob("*.tf"):
+                archive.write(source, "tfconfig/m-/" + source.name)
+            archive.write(self.work / ".terraform.lock.hcl", ".terraform.lock.hcl")
+        (self.work / "plan.json").write_text(json.dumps(self.plan))
+        evidence = {
+            "repository_commit": "a" * 40,
+            "source": {
+                "synthetic": False,
+                "saved_plan_sha256": bootstrap.sha256(self.work / "review.tfplan"),
+                "plan_json_sha256": bootstrap.sha256(self.work / "plan.json"),
+            },
+            "context": json.loads((self.work / "context.json").read_text()),
+        }
+        (self.work / "evidence").mkdir(exist_ok=True)
+        (self.work / "evidence/evidence.json").write_text(json.dumps(evidence))
+        (self.work / "evidence/summary.md").write_text("Synthetic test review summary\n")
+
+    def terraform(self, command, **kwargs):
+        self.calls.append(command)
+        self.assertEqual(command[0], "terraform")
+        self.assertNotIn("plan", command)
+        self.assertNotIn("init", command)
+        if command[1] == "show":
+            return subprocess.CompletedProcess(command, 0, stdout=json.dumps(self.plan))
+        self.assertEqual(
+            command, ["terraform", "apply", "-input=false", "-no-color", "review.tfplan"]
+        )
+        self.assertEqual(kwargs["cwd"], self.work)
+        return subprocess.CompletedProcess(command, 0)
+
+    def fake_aws(self, env, service, action, *args):
+        if any(c[1] == "apply" for c in self.calls):
+            self.postflight_calls.append(action)
+            if action == "list-permission-sets":
+                return {"PermissionSets": ["new"]}
+            if action == "describe-permission-set":
+                return {
+                    "PermissionSet": {
+                        "Name": "IaCPlanReadOnly",
+                        "SessionDuration": "PT1H",
+                        "PermissionSetArn": "new",
+                    }
+                }
+            if action == "get-inline-policy-for-permission-set":
+                return {"InlinePolicy": json.dumps(self.config["inline_policy"])}
+            if action == "list-managed-policies-in-permission-set":
+                return {"AttachedManagedPolicies": []}
+            if action == "list-customer-managed-policy-references-in-permission-set":
+                return {"CustomerManagedPolicyReferences": []}
+            if action == "list-account-assignments":
+                return {
+                    "AccountAssignments": [
+                        {
+                            "AccountId": "623155450153",
+                            "PrincipalType": "USER",
+                            "PrincipalId": bootstrap.PRINCIPAL,
+                        }
+                    ]
+                }
+            self.fail("Unexpected postflight API: " + action)
+        return BootstrapTests.fake_aws(self, env, service, action, *args)
+
+    def seal(self):
+        return bootstrap.seal_bundle(self.env, self.work)
+
+    def assert_no_apply(self):
+        self.assertFalse(any(c[1] == "apply" for c in self.calls))
+
+    def test_apply_requires_both_approvals_and_rejects_agents(self):
+        for overrides in (
+            {"AGENT_MODE": "1"},
+            {"HUMAN_BOOTSTRAP_APPROVED": ""},
+            {"AWS_MUTATION_APPROVED": ""},
+        ):
+            with self.assertRaises(ValueError):
+                bootstrap.apply_bootstrap(self.env | overrides, self.work, "f" * 64)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.discovery_calls, [])
+
+    def test_rejects_missing_bundle_files_and_outside_directory(self):
+        for name in (
+            "review.tfplan",
+            "plan.json",
+            "context.json",
+            "evidence/evidence.json",
+            "evidence/summary.md",
+        ):
+            original = (self.work / name).read_bytes()
+            (self.work / name).unlink()
+            with self.assertRaises(ValueError):
+                self.seal()
+            (self.work / name).write_bytes(original)
+        with self.assertRaises(ValueError):
+            bootstrap.review_directory(self.root)
+        self.assert_no_apply()
+
+    def test_manifest_is_exclusive_and_altered_files_digest_or_code_rejected(self):
+        digest = self.seal()
+        with self.assertRaises(ValueError):
+            self.seal()
+        for name in (
+            "review.tfplan",
+            "plan.json",
+            "context.json",
+            "evidence/evidence.json",
+            "evidence/summary.md",
+            "bootstrap.tfvars.json",
+            ".terraform/terraform.tfstate",
+        ):
+            original = (self.work / name).read_bytes()
+            (self.work / name).write_bytes(original + b" ")
+            with self.assertRaises(ValueError):
+                bootstrap.apply_bootstrap(self.env, self.work, digest)
+            (self.work / name).write_bytes(original)
+        with self.assertRaises(ValueError):
+            bootstrap.apply_bootstrap(self.env, self.work, "0" * 64)
+        (self.root / "scripts/bootstrap_identity_center.py").write_text("changed")
+        with self.assertRaises(ValueError):
+            bootstrap.apply_bootstrap(self.env, self.work, digest)
+        self.assert_no_apply()
+
+    def test_rejects_unsafe_plans_even_before_manifest_creation(self):
+        good = copy.deepcopy(self.plan)
+        for actions in (["update"], ["delete"], ["delete", "create"]):
+            self.plan = copy.deepcopy(good)
+            self.plan["resource_changes"][0]["change"]["actions"] = actions
+            self.rebuild_plan()
+            with self.assertRaises(ValueError):
+                self.seal()
+        changes = [
+            (0, "name", "WrongName"),
+            (0, "session_duration", "PT8H"),
+            (2, "target_id", "835990279085"),
+            (2, "principal_id", "wrong"),
+            (2, "principal_type", "GROUP"),
+            (1, "inline_policy", "{}"),
+        ]
+        for index, key, value in changes:
+            self.plan = copy.deepcopy(good)
+            self.plan["resource_changes"][index]["change"]["after"][key] = value
+            self.rebuild_plan()
+            with self.assertRaises(ValueError):
+                self.seal()
+        self.plan = copy.deepcopy(good)
+        self.plan["resource_changes"].append(
+            {
+                "address": "aws_ssoadmin_managed_policy_attachment.admin",
+                "type": "aws_ssoadmin_managed_policy_attachment",
+                "change": {"actions": ["create"]},
+            }
+        )
+        self.rebuild_plan()
+        with self.assertRaises(ValueError):
+            self.seal()
+        self.assert_no_apply()
+
+    def test_binary_export_mismatch_and_component_changes_rejected(self):
+        self.plan["variables"]["nickname"]["value"] = "changed"
+        with self.assertRaises(ValueError):
+            self.seal()
+        self.plan["variables"]["nickname"]["value"] = "owner-iac-plan-readonly"
+        (self.root / "components" / bootstrap.COMPONENT / "main.tf").write_text("changed")
+        with self.assertRaises(ValueError):
+            self.seal()
+        self.assert_no_apply()
+
+    def test_wrong_live_account_or_existing_permission_set_prevents_apply(self):
+        digest = self.seal()
+        self.identity["Account"] = "623155450153"
+        with self.assertRaises(ValueError):
+            bootstrap.apply_bootstrap(self.env, self.work, digest)
+        self.identity["Account"] = bootstrap.OWNER
+
+        def existing(env, service, action, *args):
+            if action == "describe-permission-set":
+                return {"PermissionSet": {"Name": "IaCPlanReadOnly"}}
+            return self.fake_aws(env, service, action, *args)
+
+        with patch.object(bootstrap, "aws", side_effect=existing):
+            with self.assertRaises(ValueError):
+                bootstrap.apply_bootstrap(self.env, self.work, digest)
+        self.assert_no_apply()
+
+    def test_applies_only_saved_plan_and_verifies_postflight(self):
+        digest = self.seal()
+        bootstrap.apply_bootstrap(self.env, self.work, digest)
+        self.assertEqual([c[1] for c in self.calls], ["show", "show", "apply"])
+        self.assertEqual(
+            json.loads((self.work / "post-apply.json").read_text())["status"], "verified"
+        )
+        self.assertIn("list-managed-policies-in-permission-set", self.postflight_calls)
+        self.assertIn(
+            "list-customer-managed-policy-references-in-permission-set", self.postflight_calls
+        )
+
+    def test_postflight_failure_is_recorded_without_automatic_retry(self):
+        digest = self.seal()
+
+        def unexpected_policy(env, service, action, *args):
+            if action == "list-managed-policies-in-permission-set":
+                return {"AttachedManagedPolicies": [{"Arn": "unreviewed"}]}
+            return self.fake_aws(env, service, action, *args)
+
+        with patch.object(bootstrap, "aws", side_effect=unexpected_policy):
+            with self.assertRaises(ValueError):
+                bootstrap.apply_bootstrap(self.env, self.work, digest)
+        self.assertEqual(
+            json.loads((self.work / "post-apply.json").read_text())["status"], "failed"
+        )
+        self.assertEqual(sum(c[1] == "apply" for c in self.calls), 1)
 
 
 class BootstrapTests(unittest.TestCase):
@@ -131,7 +414,7 @@ class BootstrapTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     bootstrap.discover(self.env)
 
-    def test_other_components_and_apply_are_not_callable(self):
+    def test_other_components_and_apply_without_review_are_not_callable(self):
         for args in (
             ["plan", "s3-bucket"],
             ["apply", bootstrap.COMPONENT],
