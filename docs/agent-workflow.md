@@ -120,3 +120,12 @@ with --require-hashes. Ruff checks changed Python; static IaC risk regressions f
 The email-forwarding prototype is source-preserved but explicitly blocked by
 components/status.json. It cannot be deployed even in human mode; a reviewed
 implementation and validation are prerequisites for promotion. See its README.
+
+## Bounded repository role handoff
+
+[Repo-specific role contracts](../.agent/README.md) and the
+[one-cycle runner](bounded-agent-workflow.md) coordinate local checks and supplied
+Architect/Builder/Reviewer/Security/Operations reports. Run
+`python3 scripts/agent_workflow.py /PRIVATE/work-request.json`. It writes ignored
+private evidence, permits one explicit repository remediation continuation, and
+ends at STOP_FOR_HUMAN. No live plan, AWS operation or deployment is executed.
