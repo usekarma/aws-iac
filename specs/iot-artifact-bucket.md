@@ -1,6 +1,6 @@
 # IoT prototype artifact bucket
 
-Status: STOP_FOR_HUMAN — implementation prepared; live plan blocked on read-only IAM.
+Status: awaiting human plan review — dedicated read-only identity verified; no apply authorized.
 Owner/reviewer: strall / requesting human.
 
 ## Goal and scope
@@ -13,7 +13,7 @@ artifact versions. No shared-module refactor or new bucket implementation is nee
 
 ## Exact target
 
-- Profile: `strall-dev`; account: `623155450153`; region: `us-east-1`.
+- Planning profile: `strall-dev-plan`; account: `623155450153`; region: `us-east-1`.
 - Environment: `dev`; binding: `strall-com-dev`; prefix: `/iac`.
 - Component/nickname: `s3-bucket` / `iot-digital-twin-artifacts`.
 - Bucket: `623155450153-iot-digital-twin-artifacts`.
@@ -22,11 +22,10 @@ artifact versions. No shared-module refactor or new bucket implementation is nee
 - Existing backend lock table: `623155450153-tf-locks`; never bootstrap it.
 
 STS and a value-filtered read of `/iac/environment` confirmed account and dev
-binding on 2026-10-09. The available strall-dev SSO session is AdministratorAccess.
-The human explicitly forbids using it for planning. Local profile names inspected:
-no dedicated read-only planning profile is configured. Do not assume another
-profile is safe or select production. The operator must arrange a dedicated
-`IaCPlanReadOnly` permission set/session for strall-dev. No IAM mutation is authorized.
+binding on 2026-10-09. The initial strall-dev SSO session was AdministratorAccess and was forbidden
+for planning. After the separately executed human bootstrap, the dedicated
+`strall-dev-plan` profile uses `IaCPlanReadOnly`. Use only that restricted profile
+for this proposal. No IAM mutation is authorized by the artifact-bucket task.
 
 ## Exact expected plan
 
@@ -115,7 +114,7 @@ HeadBucket maps to s3:ListBucket.
 These are the bounded permissions for this component/backend, not an account-wide
 ReadOnlyAccess recommendation. Provider/Terragrunt versions are not dependency
 pinned by the repository; denied reads must be investigated and documented,
-never worked around by switching to AdministratorAccess. 
+never worked around by switching to AdministratorAccess.
 
 ## Verification and pending live evidence
 
@@ -129,10 +128,10 @@ After the human supplies read-only IAM, verify identity again and abort on any
 account mismatch. Keep raw plan/output private, umask 077:
 
 ```bash
-export AGENT_MODE=1 AWS_PROFILE=strall-dev AWS_REGION=us-east-1
+export AGENT_MODE=1 AWS_PROFILE=strall-dev-plan AWS_REGION=us-east-1
 export EXPECTED_AWS_ACCOUNT=623155450153 EXPECTED_ENVIRONMENT=dev
 export EXPECTED_BINDING=strall-com-dev IAC_PREFIX=/iac
-aws sts get-caller-identity --profile strall-dev --region us-east-1 --no-cli-pager
+aws sts get-caller-identity --profile strall-dev-plan --region us-east-1 --no-cli-pager
 # Confirm account exactly 623155450153 and the dedicated read-only role.
 bash scripts/preflight.sh
 bash scripts/plan.sh s3-bucket iot-digital-twin-artifacts \
@@ -143,8 +142,9 @@ Inspect the exact cache plan privately with terraform show -json. Use
 scripts/evidence.py with a real, non-synthetic context and saved-plan digest;
 never commit plan values or evidence. Stop on unexpected actions/resources,
 missing backend or global bucket-name collision. No bootstrap is allowed.
-The live plan and evidence generation remain pending; no synthetic plan is
-represented as live evidence.
+The private live plan and evidence are available locally after restricted-role
+preflight/planning. No raw evidence or plan values belong in Git or the PR.
+Human review and separate approval remain required; no apply is authorized.
 
 ## Recovery and postflight
 
