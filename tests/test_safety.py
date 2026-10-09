@@ -159,6 +159,63 @@ if Path(sys.argv[0]).name == "aws":
             with self.subTest(key=key):
                 self.assertNotEqual(self.call("preflight.sh", **{key: "wrong"}).returncode, 0)
 
+    def identity_component(self):
+        component = self.work / "components/identity-center-permission-set"
+        component.mkdir()
+        (component / "header.tf").write_text("terraform {}")
+
+    def test_identity_center_wrong_accounts_stop_before_config_or_terraform(self):
+        self.identity_component()
+        profiles = {
+            "strall-dev": "623155450153",
+            "strall-com": "626357444348",
+            "dev-iac": "553874814020",
+            "prod-iac": "580801917120",
+            "karma": "284151638475",
+            "prod-karma": "580801917120",
+        }
+        for profile, account in profiles.items():
+            with self.subTest(profile=profile):
+                result = self.call(
+                    "plan.sh",
+                    "identity-center-permission-set",
+                    "owner-readonly",
+                    AWS_PROFILE=profile,
+                    EXPECTED_AWS_ACCOUNT="835990279085",
+                    MOCK_ACCOUNT=account,
+                )
+                self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(all("get-caller-identity" in c for c in self.calls()))
+
+    def test_identity_center_target_override_rejected_without_aws(self):
+        self.identity_component()
+        for env in (
+            {"EXPECTED_AWS_ACCOUNT": "623155450153"},
+            {"EXPECTED_AWS_ACCOUNT": "835990279085", "AWS_REGION": "us-west-2"},
+        ):
+            result = self.call("plan.sh", "identity-center-permission-set", "owner-readonly", **env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("administration account", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_identity_center_verified_owner_uses_existing_plan_guards(self):
+        self.identity_component()
+        result = self.call(
+            "plan.sh",
+            "identity-center-permission-set",
+            "owner-readonly",
+            AWS_PROFILE="verified-owner",
+            EXPECTED_AWS_ACCOUNT="835990279085",
+            MOCK_ACCOUNT="835990279085",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        tg = [c for c in self.calls() if c[0] == "terragrunt"]
+        self.assertEqual([c[1] for c in tg], ["init", "plan"])
+        self.assertIn("-lock=false", tg[-1])
+        for c in tg:
+            self.assertIn("--backend-require-bootstrap", c)
+            self.assertIn("--disable-bucket-update", c)
+
     def test_competing_credentials_rejected_without_aws(self):
         self.assertNotEqual(self.call("preflight.sh", AWS_ACCESS_KEY_ID="synthetic").returncode, 0)
         self.assertEqual(self.calls(), [])

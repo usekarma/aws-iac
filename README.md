@@ -132,6 +132,13 @@ Builder, Verifier, Reviewer, Security and Operations evidence. The local runner
 allows one remediation continuation and stops for human review. It does not choose
 an AWS account, invoke cloud operations or change the deployment safety boundary.
 
+## Scoped planning identity
+
+The [Identity Center permission-set component](components/identity-center-permission-set/README.md)
+declares the scoped IaCPlanReadOnly bootstrap in the owner account. It uses the
+existing SSM/Terragrunt workflow and requires a verified owner-context profile;
+local implementation does not authorize permission-set creation or assignment.
+
 ## Lambda artifact ownership
 
 Runtime code/testing/packaging lives in aws-lambda, desired declarations in
