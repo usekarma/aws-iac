@@ -298,13 +298,25 @@ class ConfigValidationTests(unittest.TestCase):
             module = verify.ROOT / "components/vpc"
             module.mkdir(parents=True)
             (module / "main.tf").write_text("terraform {}")
+            shared = verify.ROOT / "modules/lambda"
+            shared.mkdir(parents=True)
+            (shared / "main.tf").write_text('variable "functions" {}')
+            (shared / "private.tfstate").write_text("synthetic-state-excluded")
+            (shared / ".terraform").mkdir()
+            (shared / ".terraform/provider").write_text("synthetic-cache-excluded")
             calls = []
+
+            def observe(args, **kwargs):
+                copied = Path(kwargs["cwd"]).parents[1] / "modules/lambda"
+                self.assertTrue((copied / "main.tf").is_file())
+                self.assertFalse((copied / "private.tfstate").exists())
+                self.assertFalse((copied / ".terraform").exists())
+                calls.append((args, kwargs))
+
             with patch.dict(
                 os.environ, {"TF_DATA_DIR": "/unexpected", "TF_CLI_ARGS_init": "-backend=true"}
             ):
-                with patch.object(
-                    verify, "run", side_effect=lambda args, **kw: calls.append((args, kw))
-                ):
+                with patch.object(verify, "run", side_effect=observe):
                     verify.provider_validate("vpc")
             self.assertEqual(len(calls), 2)
             self.assertIn("-backend=false", calls[0][0])

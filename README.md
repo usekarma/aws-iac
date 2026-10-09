@@ -131,3 +131,10 @@ Use the [.agent role contracts](.agent/README.md) and
 Builder, Verifier, Reviewer, Security and Operations evidence. The local runner
 allows one remediation continuation and stops for human review. It does not choose
 an AWS account, invoke cloud operations or change the deployment safety boundary.
+
+## Lambda artifact ownership
+
+Runtime code/testing/packaging lives in aws-lambda, desired declarations in
+aws-config, and resources/IAM/wiring/deployment in aws-iac. Generic and IoT
+consumers share a module requiring versioned artifacts. See the
+[artifact contract and migration requirements](docs/lambda-artifact-contract.md).

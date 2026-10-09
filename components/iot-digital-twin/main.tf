@@ -51,6 +51,16 @@ resource "terraform_data" "config_contract" {
 
   lifecycle {
     precondition {
+      condition = (
+        local.ingest_function.runtime == "python3.12" && local.ingest_function.handler == "app.lambda_handler" &&
+        basename(local.ingest_function.artifact.s3_key) == "iot-digital-twin-ingest.zip" &&
+        length(trimspace(local.ingest_function.environment.EXPECTED_PRINCIPAL)) > 0 &&
+        local.mqtt_topic == "devices/${local.device_id}/telemetry" &&
+        local.ingest_function.log_retention_days == local.cloudwatch_retention
+      )
+      error_message = "IoT requires the ingestion artifact/runtime/handler, explicit expected principal, matching device topic and log retention."
+    }
+    precondition {
       condition     = local.least_privilege_iam == true
       error_message = "least_privilege_iam must be true; broad or implicit IAM fallback is not allowed in this prototype."
     }
@@ -114,11 +124,7 @@ resource "aws_iam_role_policy" "ingest_lambda_runtime" {
         Sid    = "LatestStateTable"
         Effect = "Allow"
         Action = [
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
-          "dynamodb:GetItem",
-          "dynamodb:ConditionCheckItem",
-          "dynamodb:Query"
+          "dynamodb:PutItem"
         ]
         Resource = aws_dynamodb_table.latest_state.arn
       },
@@ -129,60 +135,71 @@ resource "aws_iam_role_policy" "ingest_lambda_runtime" {
           "ssm:GetParameter",
           "ssm:GetParameters"
         ]
-        Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.iac_prefix}/*"
+        Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${local.config_path}"
       }
     ]
   })
 }
 
-resource "aws_lambda_function" "ingest" {
-  function_name = local.lambda_name
-  role          = aws_iam_role.ingest_lambda.arn
-  handler       = "handler.lambda_handler"
-  runtime       = "python3.12"
-  memory_size   = 512
-  timeout       = 30
-
-  filename         = "${path.module}/empty.zip"
-  source_code_hash = filebase64sha256("${path.module}/empty.zip")
-
-  environment {
-    variables = {
-      DEVICE_ID                        = local.device_id
-      THING_NAME                       = local.thing_name
-      MQTT_TOPIC                       = local.mqtt_topic
-      IAC_PREFIX                       = var.iac_prefix
-      STATE_TABLE                      = aws_dynamodb_table.latest_state.name
-      PROJECT_NAME                     = local.project
-      SERVER_REPLAY                    = tostring(local.server_replay_stale)
-      CONNECTIVITY                     = tostring(local.server_derived_connectivity)
-      DEVICE_CERTIFICATE_AUTHORITATIVE = tostring(local.device_cert_authoritative)
-      DEVICE_ID_IS_DATA_ONLY           = tostring(local.device_id_is_data_only)
-      REJECT_DEVICE_AUTHORED_OFFLINE   = tostring(local.reject_device_authored_offline)
-      TELEMETRY_RATE_HZ                = tostring(local.telemetry_rate_hz)
-      OFFLINE_TIMEOUT_SECONDS          = tostring(local.offline_timeout_seconds)
-      MAX_CLOCK_SKEW_SECONDS           = tostring(local.max_clock_skew_seconds)
-      MAX_RETRY_ATTEMPTS               = tostring(local.max_retry_attempts)
-      STATE_ATTRIBUTE_LAST_SEQUENCE    = "last_sequence"
-      STATE_ATTRIBUTE_LAST_SEEN_AT     = "last_seen_at"
-      STATE_ATTRIBUTE_LAST_STATUS      = "last_status"
-      TRUSTED_PRINCIPAL_FIELD          = "principal"
-      TRUSTED_TOPIC_FIELD              = "topic"
-      TWINMAKER_STATUS                 = local.twinmaker_status
-      TWINMAKER_WORKSPACE_NAME         = local.twin_workspace
-      TWINMAKER_ENTITY_NAME            = local.twin_entity
-      TWINMAKER_COMPONENT_NAME         = local.twin_component
-      TWINMAKER_COMPONENT_TYPE         = local.twin_type
+module "ingest" {
+  source    = "../../modules/lambda"
+  functions = { ingest = local.ingest_function }
+  bindings = {
+    ingest = {
+      function_name = local.lambda_name
+      role_arn      = aws_iam_role.ingest_lambda.arn
+      environment = {
+        EXPECTED_DEVICE_ID               = local.device_id
+        EXPECTED_PRINCIPAL               = local.ingest_function.environment.EXPECTED_PRINCIPAL
+        THING_NAME                       = local.thing_name
+        MQTT_TOPIC                       = local.mqtt_topic
+        IAC_PREFIX                       = var.iac_prefix
+        LATEST_STATE_TABLE               = aws_dynamodb_table.latest_state.name
+        PROJECT_NAME                     = local.project
+        SERVER_REPLAY                    = tostring(local.server_replay_stale)
+        CONNECTIVITY                     = tostring(local.server_derived_connectivity)
+        DEVICE_CERTIFICATE_AUTHORITATIVE = tostring(local.device_cert_authoritative)
+        DEVICE_ID_IS_DATA_ONLY           = tostring(local.device_id_is_data_only)
+        REJECT_DEVICE_AUTHORED_OFFLINE   = tostring(local.reject_device_authored_offline)
+        TELEMETRY_RATE_HZ                = tostring(local.telemetry_rate_hz)
+        OFFLINE_TIMEOUT_SECONDS          = tostring(local.offline_timeout_seconds)
+        MAX_CLOCK_SKEW_SECONDS           = tostring(local.max_clock_skew_seconds)
+        MAX_RETRY_ATTEMPTS               = tostring(local.max_retry_attempts)
+        STATE_ATTRIBUTE_LAST_SEQUENCE    = "sequence"
+        STATE_ATTRIBUTE_LAST_SEEN_AT     = "received_at"
+        STATE_ATTRIBUTE_LAST_STATUS      = "last_status"
+        TRUSTED_PRINCIPAL_FIELD          = "principal"
+        TRUSTED_TOPIC_FIELD              = "topic"
+        TWINMAKER_STATUS                 = local.twinmaker_status
+        TWINMAKER_WORKSPACE_NAME         = local.twin_workspace
+        TWINMAKER_ENTITY_NAME            = local.twin_entity
+        TWINMAKER_COMPONENT_NAME         = local.twin_component
+        TWINMAKER_COMPONENT_TYPE         = local.twin_type
+      }
     }
   }
-
   tags = local.tags
+  depends_on = [
+    aws_iam_role_policy_attachment.ingest_lambda_basic,
+    aws_iam_role_policy.ingest_lambda_runtime,
+    terraform_data.config_contract,
+  ]
+}
+
+moved {
+  from = aws_lambda_function.ingest
+  to   = module.ingest.aws_lambda_function.this["ingest"]
+}
+
+moved {
+  from = aws_cloudwatch_log_group.ingest
+  to   = module.ingest.aws_cloudwatch_log_group.this["ingest"]
 }
 
 resource "aws_lambda_permission" "iot_trigger" {
   statement_id   = "AllowExecutionFromIoTTopicRule"
   action         = "lambda:InvokeFunction"
-  function_name  = aws_lambda_function.ingest.function_name
+  function_name  = module.ingest.functions["ingest"].function_name
   principal      = "iot.amazonaws.com"
   source_arn     = aws_iot_topic_rule.telemetry.arn
   source_account = data.aws_caller_identity.current.account_id
@@ -195,14 +212,8 @@ resource "aws_iot_topic_rule" "telemetry" {
   sql_version = "2016-03-23"
 
   lambda {
-    function_arn = aws_lambda_function.ingest.arn
+    function_arn = module.ingest.functions["ingest"].arn
   }
-}
-
-resource "aws_cloudwatch_log_group" "ingest" {
-  name              = "/aws/lambda/${local.lambda_name}"
-  retention_in_days = local.cloudwatch_retention
-  tags              = local.tags
 }
 
 # The Lambda must persist last accepted sequence and timestamp in DynamoDB rather
@@ -243,11 +254,11 @@ resource "aws_ssm_parameter" "runtime" {
     thing_name                          = aws_iot_thing.device.name
     mqtt_topic                          = local.mqtt_topic
     iot_rule_name                       = aws_iot_topic_rule.telemetry.name
-    ingest_lambda_name                  = aws_lambda_function.ingest.function_name
+    ingest_lambda_name                  = module.ingest.functions["ingest"].function_name
     latest_state_table_name             = aws_dynamodb_table.latest_state.name
     server_side_state_strategy          = "dynamodb-item-conditionals"
-    last_sequence_attribute             = "last_sequence"
-    last_seen_at_attribute              = "last_seen_at"
+    last_sequence_attribute             = "sequence"
+    last_seen_at_attribute              = "received_at"
     replay_rejection                    = "enabled"
     stale_overwrite_prevention          = "enabled"
     trusted_principal_source            = "aws_iot_topic_rule.principal()"

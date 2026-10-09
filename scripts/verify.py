@@ -92,12 +92,19 @@ def provider_validate(component):
                 continue
             raise ValueError("No Terraform module: " + component)
         with tempfile.TemporaryDirectory(prefix="iac-validate-") as scratch:
+            module_copy = Path(scratch) / "components" / module.name
             shutil.copytree(
                 module,
-                scratch,
+                module_copy,
                 dirs_exist_ok=True,
                 ignore=shutil.ignore_patterns(".terraform", "*.tfstate", "*.tfstate.*"),
             )
+            if (ROOT / "modules").is_dir():
+                shutil.copytree(
+                    ROOT / "modules",
+                    Path(scratch) / "modules",
+                    ignore=shutil.ignore_patterns(".terraform", "*.tfstate", "*.tfstate.*"),
+                )
             env = os.environ.copy()
             for key in list(env):
                 if key.startswith("TF_CLI_ARGS"):
@@ -105,14 +112,14 @@ def provider_validate(component):
             env.update(
                 AWS_EC2_METADATA_DISABLED="true",
                 TF_IN_AUTOMATION="true",
-                TF_DATA_DIR=str(Path(scratch) / ".terraform"),
+                TF_DATA_DIR=str(module_copy / ".terraform"),
             )
             run(
                 ["terraform", "init", "-backend=false", "-input=false", "-no-color"],
-                cwd=scratch,
+                cwd=module_copy,
                 env=env,
             )
-            run(["terraform", "validate", "-no-color"], cwd=scratch, env=env)
+            run(["terraform", "validate", "-no-color"], cwd=module_copy, env=env)
 
 
 def main():
