@@ -71,7 +71,7 @@ A bootstrap failure is not evidence that a resource is absent. Inspect the exact
 private error before expanding any permissions. The live planner is for the
 human to run; agents validate it only through mocks.
 
-## Seal the existing review bundle, then separately approve apply
+## Human seal/apply procedure (completed for this instance)
 
 ```text
 human bootstrap plan → saved review bundle → seal exact inputs
@@ -80,10 +80,11 @@ human bootstrap plan → saved review bundle → seal exact inputs
   → read-only post-apply verification → bootstrap ends
 ```
 
-The already-reviewed bundle is
-`artifacts/identity-center-bootstrap/review-uhd86fs8`. It predates manifests.
-The human first runs this LOCAL, non-mutating seal operation after reviewing the
-updated code; it never regenerates or replaces review.tfplan, plan.json or evidence:
+The bundle `artifacts/identity-center-bootstrap/review-uhd86fs8` has already been
+sealed and successfully applied by the human. **Do not rerun the commands below
+against that applied bundle.** They document the human procedure, not a pending
+action. For an eligible unapplied bundle, sealing is LOCAL and non-mutating and
+never regenerates or replaces review.tfplan, plan.json or evidence:
 
 ```bash
 AGENT_MODE=0 HUMAN_BOOTSTRAP_APPROVED=1 \
@@ -107,8 +108,9 @@ alone are not tamper-proof: apply requires the external reviewed digest, so do n
 calculate a new digest from potentially changed files just before apply. Changed
 inputs require fresh review; never silently reseal to bypass rejection.
 
-ONLY after explicit human approval of this exact saved plan, set the recorded
-REVIEWED_MANIFEST_SHA256 and personally run:
+For an eligible unapplied bundle ONLY after explicit human approval of its exact
+saved plan, set its recorded REVIEWED_MANIFEST_SHA256 and personally run. The
+following command was already executed successfully for the displayed bundle:
 
 ```bash
 AGENT_MODE=0 HUMAN_BOOTSTRAP_APPROVED=1 AWS_MUTATION_APPROVED=1 \
@@ -135,7 +137,7 @@ after mutation, never rolled back or retried automatically. A partial apply requ
 state/log inspection and a separately reviewed recovery operation. No CLI profile
 edit, SSO login, artifact upload or normal workflow is triggered.
 
-## State ownership and eventual execution
+## Retained bootstrap state ownership
 
 Expected managed resources: permission set, inline policy and one USER assignment.
 Local state/plan/snapshot/lock file belong to the human bootstrap review directory;
@@ -195,3 +197,19 @@ Authenticate with aws sso login --profile strall-dev-plan and explicit-region ST
 Require account 623155450153 and AWSReservedSSO_IaCPlanReadOnly_<suffix>. Normal
 agent workload planning then uses this restricted role, normal binding/config
 checks and existing backend safeguards. No profile edits occur in this PR.
+
+## Completed bootstrap result
+
+The verified human execution used identity-center-admin in owner account
+835990279085, a sealed three-create saved plan, separate explicit apply approval,
+and successful read-only postflight. IaCPlanReadOnly, its unchanged reviewed
+inline policy and the USER assignment into 623155450153 now exist. No managed
+policies are attached. Local bootstrap state remains private and must be retained.
+The execution manifest digest is recorded in the spec at the human's request.
+
+The CLI profile was configured separately afterward. strall-dev-plan successfully
+planned PR #11's artifact bucket using account 623155450153 and
+AWSReservedSSO_IaCPlanReadOnly_92e4b2f1ca02a611: six creates, no changes/deletes.
+The bootstrap script did not configure profiles or perform workload planning.
+Agents continue using restricted IAM for ordinary planning; no additional apply,
+role/policy modification or state migration is authorized by merge review.

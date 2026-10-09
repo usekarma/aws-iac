@@ -1,6 +1,6 @@
 # Declarative IaCPlanReadOnly and explicit human bootstrap
 
-Status: STOP_FOR_HUMAN — locally prepared; human must generate/review live plan.
+Status: observed — human bootstrap/apply/postflight completed; ready for merge review.
 Owner/reviewer: strall / requesting human. Branch: feature/iac-plan-readonly.
 No live planning, apply or AWS mutation is authorized for the agent in this task.
 
@@ -71,7 +71,8 @@ normal remote-state component against the same resources after bootstrap: state
 ownership remains with the bootstrap snapshot until a separately reviewed
 migration. Never discard eventual applied state or repair/migrate it casually.
 
-No objects/data are changed by this task. Future rollback/revocation is a new
+This documentation finalization changes no infrastructure. The human bootstrap
+created the reviewed permission set/policy/assignment. Future rollback/revocation is a new
 reviewed operation; permission-set deletion can revoke user access. CloudTrail
 would audit future admin actions. No new logging/alarm/backup resources are
 required for plan preparation. Propagation/availability/role access and attached
@@ -120,16 +121,17 @@ init/validate. A disposable copy also verified that bootstrap_override.tf select
 only the local backend. Recursive Terraform fmt, git diff --check and changed
 Python Ruff format/lint pass. Terraform 1.15.2, Terragrunt 0.83.2, AWS provider
 6.68.0. Initial formatting/generated-HCL errors were corrected and checks rerun.
-No live human bootstrap invocation, AWS calls, config publication, apply or
-profile edits occurred. Agent mode remained enabled for this task; test fixtures
-mock human environments/tools without authorizing real bootstrap operations.
+These implementation-time tests used mocked human environments/tools. The agent
+kept agent mode enabled and did not execute bootstrap; the subsequent successful
+human execution is recorded below.
 
 ## Human-only saved-plan apply extension
 
 The requesting human identified review-uhd86fs8 as reviewed: three creates, no
 changes/deletes. Its original binary/JSON evidence digests and checked-in component
 snapshots match; no source/resource or declaration changes are needed for apply.
-The bundle predates manifests. The explicit human `seal` action verifies archived
+The bundle originally predated manifests and has now been sealed by the human.
+The explicit human `seal` action verifies archived
 configuration/provider lock, original evidence/context, repository identity/commit
 ancestry, checked-in configuration, local backend and binary export/JSON equality.
 It creates an exclusive read-only manifest without changing the plan or evidence.
@@ -167,7 +169,39 @@ diff whitespace checks pass. Backend-disabled Terraform validation passes with
 Terraform 1.15.2 / AWS provider 6.68.0. The component Terraform definitions and
 reviewed declaration are unchanged by this apply extension. Local read-only
 Terraform show confirmed the existing saved binary exports exactly to the
-reviewed plan.json; original evidence digests still match. No real manifest was
-created, no live AWS calls or apply occurred, and normal deployment scripts and
-AGENTS.md remain unchanged. Apply/postflight executions in tests use mocked tools
-and synthetic temporary bundles only.
+reviewed plan.json; original evidence digests still match. The agent did not seal
+or apply during implementation. The human subsequently sealed/applied successfully,
+as recorded below. Normal deployment safeguards and AGENTS.md remain unchanged;
+apply/postflight tests continue using mocked tools and synthetic bundles only.
+
+## Completed human execution and subsequent restricted planning
+
+The human reported successful execution, corroborated by the retained local
+manifest, bootstrap state and verified post-apply result. Execution sequence:
+
+```text
+identity-center-admin → owner account 835990279085 → sealed saved plan
+  → explicit human apply approval → successful apply → read-only postflight
+  → strall-dev-plan successfully used for ordinary workload planning
+```
+
+- Reviewed bootstrap plan: 3 creates, 0 changes, 0 deletes.
+- Reviewed manifest SHA-256, explicitly supplied for this execution record:
+  `83b7fda1f7f3f66c5311d2199a3f7426862ffd95fbd3341c5826da455ea27c3c`.
+- IaCPlanReadOnly was created with the exact reviewed inline policy and PT1H.
+- USER b4486448-d011-7037-9cfb-c16c43f591e1 was assigned into account 623155450153.
+- Read-only postflight succeeded; no AWS/customer-managed policies were attached.
+- Local bootstrap state is retained privately in the applied review directory.
+  Do not rerun seal/apply or adopt these resources into a second state owner.
+- Bootstrap did not configure a CLI profile. The separately authorized profile
+  configuration and SSO login succeeded afterward.
+- Resulting workload planning identity: account 623155450153,
+  role AWSReservedSSO_IaCPlanReadOnly_92e4b2f1ca02a611, profile strall-dev-plan.
+- PR #11 then used that restricted identity successfully: preflight passed and
+  its artifact-bucket plan had 6 creates, 0 changes/deletes, expected resources only.
+  No artifact-bucket apply or Lambda ZIP upload occurred.
+
+Only this human-supplied manifest digest and non-secret execution summary are
+recorded here; raw plans, state, logs and postflight evidence remain private and
+untracked. No reviewed policy, Terraform resource or bootstrap behavior is changed
+by finalizing these documents. Merge review is separate from AWS authorization.
