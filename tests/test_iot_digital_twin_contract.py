@@ -7,7 +7,6 @@ class IotDigitalTwinConfigContractTests(unittest.TestCase):
     def test_iot_digital_twin_config_carries_contract_fields(self):
         config_path = (
             Path(__file__).resolve().parent.parent
-            / ".."
             / "aws-config"
             / "iac"
             / "dev"
