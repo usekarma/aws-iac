@@ -46,10 +46,21 @@ run "reject_wrong_caller" {
 run "reject_wrong_configured_owner" {
   command = plan
   override_data {
-    target = data.aws_ssm_parameter.config
+    target = data.aws_ssm_parameter.config[0]
     values = {
       value = jsonencode(merge(jsondecode(file("../../examples/identity-center-owner.iac-plan-readonly.json")), { administration_account_id = "623155450153" }))
     }
   }
   expect_failures = [aws_ssoadmin_permission_set.permission_set]
+}
+
+run "human_bootstrap_has_no_ssm_dependency" {
+  command = plan
+  variables {
+    bootstrap_config_json = file("../../examples/identity-center-owner.iac-plan-readonly.json")
+  }
+  assert {
+    condition     = length(data.aws_ssm_parameter.config) == 0 && aws_ssoadmin_permission_set.permission_set.name == "IaCPlanReadOnly"
+    error_message = "The bootstrap declaration must not depend on published SSM inputs."
+  }
 }

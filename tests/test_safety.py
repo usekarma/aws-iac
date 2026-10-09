@@ -226,6 +226,20 @@ if Path(sys.argv[0]).name == "aws":
             self.assertNotEqual(self.call("deploy.sh", *args).returncode, 0)
         self.assertEqual(self.calls(), [])
 
+    def test_human_bootstrap_ack_does_not_authorize_normal_apply(self):
+        self.identity_component()
+        result = self.call(
+            "deploy.sh",
+            "identity-center-permission-set",
+            "owner-readonly",
+            AGENT_MODE="0",
+            HUMAN_BOOTSTRAP_APPROVED="1",
+            AWS_MUTATION_APPROVED="",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Explicit human approval required", result.stderr)
+        self.assertEqual(self.calls(), [])
+
     @unittest.skipUnless((ROOT / "terragrunt.hcl").exists(), "IaC entrypoint only")
     def test_destroy_plan_cannot_execute_destroy_or_bootstrap(self):
         result = self.call(

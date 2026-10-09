@@ -1,135 +1,124 @@
-# Declarative IaCPlanReadOnly bootstrap
+# Declarative IaCPlanReadOnly and explicit human bootstrap
 
-Status: STOP_FOR_HUMAN — local implementation; live administration context absent.
-Owner/reviewer: strall / requesting human.
-Base: current main `abc0b9291d52f9b799bc7b82adc36a18d33a2dc8`.
-Independent of artifact-bucket PR #11; no S3 implementation changes included.
+Status: STOP_FOR_HUMAN — locally prepared; human must generate/review live plan.
+Owner/reviewer: strall / requesting human. Branch: feature/iac-plan-readonly.
+No live planning, apply or AWS mutation is authorized for the agent in this task.
 
-## Goal and measurable acceptance
+## Goal and trust boundary
 
-Replace manual Identity Center permission-set/policy/assignment commands with a
-reusable SSM-configured Terraform component and existing Terragrunt orchestration.
-The exact reviewed policy, one-hour session and existing USER assignment must
-survive deterministic tests unchanged. Wrong-account wrapper execution must stop
-before SSM/backend access; direct Terraform provider account restriction adds
-defense in depth. No live AWS operations are authorized in this task.
+Solve the initial planning-role bootstrap dependency without weakening ordinary
+agent planning. The explicit human-only planner uses the same generic Terraform
+resources and checked-in declaration with a private local backend. It does not
+require or create owner SSM binding/config prerequisites. The normal runner,
+preflight, Terragrunt and AGENTS.md remain unchanged by this bootstrap update.
 
-## Exact target and scope
+AdministratorAccess is acceptable only for the one-time HUMAN bootstrap of
+IaCPlanReadOnly. Agents never use this bootstrap path. After IaCPlanReadOnly
+exists, normal agent workload planning uses the restricted role.
+HUMAN_BOOTSTRAP_APPROVED=1 authorizes human entry only, never apply.
+AGENT_MODE=1 always rejects bootstrap, even with inherited mutation approval.
+No bootstrap apply command is implemented. Eventual mutation needs a separate
+reviewed human path, current saved-plan review and AWS_MUTATION_APPROVED=1 after
+explicit approval; the bootstrap acknowledgement alone is insufficient.
 
-- Administration account: `835990279085`; region: `us-east-1`.
-- Instance: `arn:aws:sso:::instance/ssoins-7223e8cbef5c5b91`.
-- Existing IdentityStoreId: `d-9067ccec40` (not managed by this component).
-- Permission set: `IaCPlanReadOnly`; session: `PT1H`.
-- Target account: `623155450153`.
-- Principal: USER `b4486448-d011-7037-9cfb-c16c43f591e1`, username admin,
-  display name Admin; provided explicitly by the requesting human.
-- Component/nickname: `identity-center-permission-set` / `owner-iac-plan-readonly`.
-- Prefix: `/iac`; owner-account config/runtime SSM paths use that component/nickname.
-- State key: `identity-center-permission-set/owner-iac-plan-readonly/terraform.tfstate`;
-  existing owner backend names would be `835990279085-tf-state` and
-  `835990279085-tf-locks`. Their existence is unverified; do not create them.
-- Administration profile, environment type and exact owner binding: unknown;
-  required before live preflight. None is inferred from a workload/profile name.
+## Exact reviewed target
 
-## Implementation and architecture
+- Owner administration account: 835990279085; region: us-east-1.
+- Human profile: identity-center-admin; STS must identify owner AdministratorAccess.
+- Instance: arn:aws:sso:::instance/ssoins-7223e8cbef5c5b91.
+- Existing IdentityStoreId: d-9067ccec40 (not managed).
+- Permission set: IaCPlanReadOnly; session duration: PT1H.
+- Assignment: target 623155450153, USER b4486448-d011-7037-9cfb-c16c43f591e1,
+  username admin, display name Admin.
+- Fixed local declaration: examples/identity-center-owner.iac-plan-readonly.json.
+- Canonical reviewed inline-policy SHA-256:
+  43f0d7d3f42e95037872b8e90ec11228f2ab869382fdc13c27b493b3e5423d0e.
 
-The generic component supports configuration-driven name, description, duration,
-instance ARN, inline-policy object and multiple stable-key USER/GROUP assignments.
-Normal SSM input/runtime and Project/Component tags remain. It adds no managed
-policy attachments or manual deployment entrypoint. Existing Identity Center and
-principals are externally supplied identifiers. The example declaration is not
-published config; aws-config and local AWS profiles remain untouched.
+Read-only discovery in the previous task confirmed the owner account and the
+existing AdministratorAccess permission set. IaCPlanReadOnly was absent. The
+human bootstrap planner repeats these checks immediately before each plan;
+prior evidence is not permission to skip discovery. Any access denial stops.
 
-The runner explicitly passes its selected component into preflight. For this
-component, preflight fixes owner account 835990279085 and us-east-1, then verifies
-actual STS identity against that account before reading the normal binding. Thus
-current strall-dev, strall-com, dev-iac, prod-iac, karma and prod-karma identities
-fail regardless of user-provided EXPECTED_AWS_ACCOUNT overrides. Profile names
-remain aliases: an independently verified future owner profile can work after
-actual STS/binding verification. Direct provider allowed_account_ids and resource
-preconditions reject incorrect administration identities/configuration. These
-checks cannot replace IAM or authorize mutation.
+## Exactly expected bootstrap plan
 
-## Expected eventual plan
+Three creates, zero changes/deletes:
 
-If no existing managed resources/collisions are found, expect four creates:
+1. aws_ssoadmin_permission_set.permission_set
+2. aws_ssoadmin_permission_set_inline_policy.inline_policy
+3. aws_ssoadmin_account_assignment.assignment["623155450153/USER/b4486448-d011-7037-9cfb-c16c43f591e1"]
 
-1. `aws_ssoadmin_permission_set.permission_set`
-2. `aws_ssoadmin_permission_set_inline_policy.inline_policy`
-3. `aws_ssoadmin_account_assignment.assignment["623155450153/USER/b4486448-d011-7037-9cfb-c16c43f591e1"]`
-4. `aws_ssm_parameter.runtime` in the owner account at
-   `/iac/identity-center-permission-set/owner-iac-plan-readonly/runtime`.
+Runtime SSM was unnecessary for this component and is removed. No SSM parameter,
+managed-policy attachment, instance, store, user/group, Organizations, S3/backend
+or direct IAM-role resource is managed. Native Identity Center provisioning of
+an AWSReservedSSO role would occur only after separately approved execution.
+Reject any unexpected resource, update/delete/replacement/drift, incorrect
+instance/name/duration/assignment or policy difference. Existing IaCPlanReadOnly
+always stops bootstrap rather than proposing duplication or adoption.
 
-Runtime publication is the standard supporting component resource, not a grant in
-the planning role's inline policy. No instance/store/principal creation, IAM role
-resource, managed-policy attachment, Organizations change, S3 bucket or data
-resource is declared. Preserve existing assignments, permission sets, instance,
-store, owner backend, artifact/state buckets and all persistent data. Stop on
-updates, replacements, deletes or unexpected resources pending renewed review.
+## Preservation, state and recovery
 
-## Security and operational considerations
+Preserve every existing permission set, assignment, instance/store/principal,
+workload resource, bucket, backend and SSM parameter. The inline policy is the
+exact human-supplied seven-statement, 24-action read-only document; no managed
+admin/read-only policy attachments, kms:Decrypt or mutation actions are added.
+Tags follow Project/Component conventions with owner/purpose/owner-context tags.
 
-The inline policy is exactly the supplied seven-statement JSON: 24 distinct read
-actions and narrowly identified resources, with resource '*' only where specified.
-No managed AdministratorAccess/PowerUserAccess/ReadOnlyAccess attachments,
-kms:Decrypt or mutation actions are added. All ungranted actions are implicitly
-denied; do not later attach broader policies without separate review. Identity
-Center's native provisioning may produce the AWSReservedSSO role after approved
-assignment; Terraform does not directly manage that IAM role.
+Raw plan, JSON, logs, declaration variables and digests remain private under
+ignored artifacts/identity-center-bootstrap/review-* with restrictive permissions.
+The snapshot-only local backend needs no AWS storage bootstrap. Do not run the
+normal remote-state component against the same resources after bootstrap: state
+ownership remains with the bootstrap snapshot until a separately reviewed
+migration. Never discard eventual applied state or repair/migrate it casually.
 
-Use owner-context read-only IAM for live planning. The elevated human owner
-identity is only for separately approved administration execution. The resulting
-workload planning role cannot administer its own permission set and is not a
-general account-wide planning role. Keep AGENT_MODE=1 and all existing approval
-guards. No need to weaken AGENTS.md or combine production workload changes.
+No objects/data are changed by this task. Future rollback/revocation is a new
+reviewed operation; permission-set deletion can revoke user access. CloudTrail
+would audit future admin actions. No new logging/alarm/backup resources are
+required for plan preparation. Propagation/availability/role access and attached
+policy lists require read-only postflight after separately approved execution.
 
-Use CloudTrail for future administrative audit; this task adds no logging/alarms
-infrastructure. Permission-set availability and assignment propagation require
-postflight observation. Session duration is one hour. No stored credentials or
-userdata are involved. No data-storage deletion or backup change is proposed.
-Cost/health/restore evidence is pending eventual execution, not inferred from tests.
+## Human command and review
+
+From the repository root, personally run:
+
+```bash
+AGENT_MODE=0 HUMAN_BOOTSTRAP_APPROVED=1 \
+AWS_PROFILE=identity-center-admin AWS_REGION=us-east-1 \
+EXPECTED_AWS_ACCOUNT=835990279085 \
+python3 scripts/bootstrap_identity_center.py plan identity-center-permission-set
+```
+
+The planner writes the exact saved review.tfplan, private terraform.log and
+plan.json, filtered discovery/context and evidence JSON/Markdown. Review both the
+resource list and values privately, record the digest and stop. No apply command
+is provided by this change. Bootstrap acknowledgement does not authorize a saved
+plan execution. Human approval of any future concrete apply is still required.
+
+After separately approved provisioning/assignment, configure strall-dev-plan and
+verify account/role/read-only grants. Then ordinary agent workload planning uses
+normal preflight/config/SSM; the planning role cannot administer its own bootstrap.
+See the component README for the profile stanza and state-ownership guidance.
 
 ## Verification
 
-Run make verify, make test, Ruff format/lint on changed Python, recursive Terraform
+Run make verify, make test, changed Python Ruff format/lint, recursive Terraform
 fmt -check, git diff --check, and scripts/verify.sh --terraform
-identity-center-permission-set. Mock-provider Terraform plan tests verify the
-reviewed declaration and reject wrong caller/configured owner. Python tests pin
-the exact canonical policy digest, expected read-action set, principal/target/name/
-duration and resource types; shell tests reject all six wrong-profile accounts,
-incorrect expected account/region, and preserve backend/agent plan guards.
+identity-center-permission-set. Deterministic tests cover acknowledgement/agent
+rejection, wrong expected/actual account, forbidden overrides/actions/components,
+existing permission-set detection, no SSM discovery or runtime resource, local
+backend/evidence, exact policy/USER/target, plan action/resource rejection and
+separate normal mutation approval. Normal preflight and other component tests
+continue unchanged. Mock Terraform tests cover normal SSM and bootstrap inputs.
+No live bootstrap plan or evidence is represented by local test fixtures.
 
-No live plan, saved-plan digest or actual evidence is generated. Once a verified
-owner read-only profile, actual binding/config/schema and existing backend are
-supplied, use scripts/plan.sh and inspect the private saved plan. Run evidence.py
-on genuine private plan JSON/context, with no secret/plan values committed.
+## Local validation results (2026-10-09)
 
-## Failure, recovery and approval
-
-Stop on unauthorized account, access denial, missing binding/backend, name or
-assignment collision, or drift. Do not add broad permissions to bypass denied
-reads. Adoption/import/state repair requires its own explicit scope and review.
-For later failure, inspect provisioning/assignment status without deleting or
-revoking unrelated access. Rollback uses a new reviewed Terraform/config plan;
-permission-set deletion can revoke user access and always needs human approval.
-
-Human approval remains required for aws-config publication, any backend creation,
-permission-set/policy/assignment apply or teardown, and local profile changes.
-After an approved apply, read back permission-set duration/policy, attached policy
-lists, exact assignment and creation/provisioning status. Use postflight.py for
-runtime SSM expectations. Authenticate strall-dev-plan, verify account/role and
-read-only grants, then separately plan the artifact bucket. Do not merge this PR
-or claim live readiness from local validation.
-
-## Local evidence (2026-10-09)
-
-Terraform 1.15.2, Terragrunt 0.83.2, AWS provider 6.68.0.
-With AWS_CONFIG_DIR=../aws-config, make verify and make test pass: 67 Python
-tests, one existing skip. Changed Python Ruff format/lint, Terraform recursive
-fmt -check, git diff --check and root Terragrunt HCL validation pass.
-scripts/verify.sh --terraform identity-center-permission-set passes disposable
-backend-disabled init and Terraform validate. Three mock-provider Terraform plan
-tests pass. Exact supplied inline-policy canonical SHA-256:
-43f0d7d3f42e95037872b8e90ec11228f2ab869382fdc13c27b493b3e5423d0e.
-No live AWS calls, plan/apply, config publication or local AWS profile changes
-were performed. All saved-plan/evidence/postflight stages remain pending.
+make verify and make test pass with AWS_CONFIG_DIR=../aws-config: 76 Python
+tests, one existing skip. Four Terraform mock-provider plan tests pass.
+scripts/verify.sh --terraform identity-center-permission-set passes backend-disabled
+init/validate. A disposable copy also verified that bootstrap_override.tf selects
+only the local backend. Recursive Terraform fmt, git diff --check and changed
+Python Ruff format/lint pass. Terraform 1.15.2, Terragrunt 0.83.2, AWS provider
+6.68.0. Initial formatting/generated-HCL errors were corrected and checks rerun.
+No live human bootstrap invocation, AWS calls, config publication, apply or
+profile edits occurred. Agent mode remained enabled for this task; test fixtures
+mock human environments/tools without authorizing real bootstrap operations.

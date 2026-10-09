@@ -135,9 +135,10 @@ an AWS account, invoke cloud operations or change the deployment safety boundary
 ## Scoped planning identity
 
 The [Identity Center permission-set component](components/identity-center-permission-set/README.md)
-declares the scoped IaCPlanReadOnly bootstrap in the owner account. It uses the
-existing SSM/Terragrunt workflow and requires a verified owner-context profile;
-local implementation does not authorize permission-set creation or assignment.
+declares scoped planning access in the owner account. An explicit human-only,
+plan-only bootstrap uses the reviewed local declaration without SSM prerequisites.
+Normal agents retain the existing restricted-IAM/SSM/Terragrunt workflow; bootstrap
+acknowledgement does not authorize permission-set creation or assignment.
 
 ## Lambda artifact ownership
 

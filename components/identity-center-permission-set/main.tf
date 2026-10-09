@@ -51,18 +51,3 @@ resource "aws_ssoadmin_account_assignment" "assignment" {
     }
   }
 }
-
-resource "aws_ssm_parameter" "runtime" {
-  name = local.runtime_path
-  type = "String"
-  value = jsonencode({
-    permission_set_arn = aws_ssoadmin_permission_set.permission_set.arn
-    instance_arn       = local.config.instance_arn
-    assignments        = local.config.assignments
-  })
-  overwrite = true
-  tier      = "Standard"
-  tags      = local.tags
-
-  depends_on = [aws_ssoadmin_account_assignment.assignment]
-}

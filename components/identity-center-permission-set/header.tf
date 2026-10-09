@@ -39,12 +39,18 @@ variable "iac_prefix" {
 data "aws_caller_identity" "current" {}
 
 data "aws_ssm_parameter" "config" {
-  name = "${var.iac_prefix}/${var.component_name}/${var.nickname}/config"
+  count = var.bootstrap_config_json == null ? 1 : 0
+  name  = "${var.iac_prefix}/${var.component_name}/${var.nickname}/config"
+}
+
+variable "bootstrap_config_json" {
+  type        = string
+  default     = null
+  description = "Reviewed local declaration supplied only by the explicit human bootstrap planner. Normal callers read SSM."
 }
 
 locals {
-  config       = jsondecode(nonsensitive(data.aws_ssm_parameter.config.value))
-  runtime_path = "${var.iac_prefix}/${var.component_name}/${var.nickname}/runtime"
+  config = jsondecode(var.bootstrap_config_json == null ? nonsensitive(data.aws_ssm_parameter.config[0].value) : var.bootstrap_config_json)
   assignments = {
     for assignment in local.config.assignments :
     "${assignment.target_account_id}/${assignment.principal_type}/${assignment.principal_id}" => assignment

@@ -78,7 +78,7 @@ class IdentityCenterDeclarationTests(unittest.TestCase):
                 actual.add(action)
         self.assertEqual(actual, expected)
 
-    def test_component_manages_only_permission_set_policy_assignment_and_runtime(self):
+    def test_component_manages_only_identity_center_resources(self):
         terraform = "\n".join(p.read_text() for p in COMPONENT.glob("*.tf"))
         self.assertEqual(
             set(re.findall(r'resource "([^"]+)"', terraform)),
@@ -86,7 +86,6 @@ class IdentityCenterDeclarationTests(unittest.TestCase):
                 "aws_ssoadmin_permission_set",
                 "aws_ssoadmin_permission_set_inline_policy",
                 "aws_ssoadmin_account_assignment",
-                "aws_ssm_parameter",
             },
         )
         self.assertIn("allowed_account_ids = [var.administration_account_id]", terraform)
