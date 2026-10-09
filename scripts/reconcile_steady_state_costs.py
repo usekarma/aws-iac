@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import calendar
 import datetime as dt
 import json
 import pathlib
