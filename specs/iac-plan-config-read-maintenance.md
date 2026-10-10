@@ -1,7 +1,7 @@
 # Single-resource IaCPlanReadOnly config-read maintenance
 
-Status: STOP_FOR_HUMAN — genuine human update plan available; seal and separately
-approve its exact saved-plan execution. No apply is authorized for the agent.
+Status: observed — human maintenance seal/apply/postflight completed; ready for
+human merge review. No further mutation is authorized for the agent.
 
 ## Exact delta
 
@@ -33,7 +33,7 @@ Do not duplicate or replay the original create-only bootstrap. Its guards remain
 
 The explicit HUMAN-only maintenance planner reuses this original owner working
 directory and local backend. HUMAN_MAINTENANCE_APPROVED=1 acknowledges use of the
-plan-only maintenance control plane, never an apply. AGENT_MODE=1 is rejected,
+maintenance control plane, never mutation approval by itself. AGENT_MODE=1 is rejected,
 including with inherited mutation approvals. An owner AdministratorAccess profile
 is only used by the human for this narrowly scoped Identity Center maintenance,
 never by an agent for ordinary workload planning. The maintenance apply interface requires BOTH HUMAN_MAINTENANCE_APPROVED and
@@ -93,18 +93,18 @@ inspected and passed the strict maintenance validator: permission set/assignment
 no-op, exactly one inline-policy update and no create/delete. Mock evidence is
 explicitly synthetic and not evidence of a live IAM update plan. Terraform 1.15.2,
 AWS provider 6.68.0. Original real owner was inspected read-only and matched its
-human-reviewed manifest/postflight/source. No actual owner state was changed, no
-AWS calls or mutations were made, and no human maintenance plan was run by the
-agent. The original bootstrap policy/code/guards and aws-config PR #7 are unchanged.
-Those initial validation results predated the subsequently generated human plan.
+human-reviewed manifest/postflight/source. The agent only implemented/tested the
+path; these initial results predated the genuine human plan and subsequent human
+apply. Original bootstrap policy/code/guards and aws-config PR #7 remain unchanged.
 
 ## Genuine maintenance review and sealed apply extension
 
 The human generated maintenance-reviews/config-read-c6887npy inside the original
 owner directory. Its genuine plan has zero creates, one inline-policy update and
-zero deletes; permission set and USER assignment are no-op. Local read-only
-inspection confirmed its recorded state hash still matches the owner. This is
-separate from the earlier explicitly synthetic mock evidence.
+zero deletes; permission set and USER assignment are no-op. Before apply, local read-only inspection confirmed the recorded state hash
+matched the owner. The human has now applied the reviewed update successfully;
+the same owner remains authoritative with its updated state. This execution is
+separate from earlier explicitly synthetic mock evidence.
 
 The human-only seal action validates the original owner, state lineage/serial/hash,
 review/evidence digests, repository identity/ancestry, exact declaration/variables,
@@ -132,7 +132,10 @@ wrong role/account or any other error fails postflight. No SSM publication, prof
 configuration, SSO login or bucket/Lambda execution is performed. Private apply.log
 and post-apply.json record success, partial failure or failed postflight.
 
-## Exact human seal command (prepared, not executed)
+## Historical human seal/apply commands (already executed)
+
+**Do not rerun these commands against the applied review.** They document the
+completed human procedure, not a pending action.
 
 ```bash
 cd /home/ted/dev/aws-iac
@@ -146,7 +149,8 @@ python3 scripts/maintain_identity_center.py seal identity-center-permission-set 
 
 Review the exact plan/evidence/manifest and record the displayed digest OUTSIDE the
 bundle. Do not replace that record with a freshly calculated digest before apply.
-Only after separate explicit approval of this exact update, personally run:
+For this completed execution, the human separately approved the exact saved
+update and ran:
 
 ```bash
 AGENT_MODE=0 HUMAN_MAINTENANCE_APPROVED=1 AWS_MUTATION_APPROVED=1 \
@@ -161,7 +165,8 @@ python3 scripts/maintain_identity_center.py apply identity-center-permission-set
 Retain the original owner state after execution. Historical bootstrap variables
 and manifest remain unchanged; do not replay an old bootstrap or plan a reversal
 using the historical declaration. Further maintenance requires its own review.
-This implementation task never executes the real seal/apply or changes PR #7.
+The agent never executed the real seal/apply. The human execution is now complete;
+PR #7 remains unmodified pending this PR reaching main.
 
 ## Saved-plan apply extension validation
 
@@ -170,6 +175,58 @@ Terraform mock runs and backend-disabled Identity Center validation pass. Ruff
 format/lint, recursive Terraform formatting and diff whitespace pass. Local binary
 export of the genuine maintenance plan equals its reviewed JSON and passes the
 strict one-update validator. One read-only inspection approval review timed out;
-a narrower local Terraform show retry succeeded without AWS calls. No actual
-maintenance manifest, apply log, state mutation, IAM apply or SSM write occurred.
-The bootstrap implementation/declarations/guards and aws-config PR #7 are unchanged.
+a narrower local Terraform show retry succeeded without AWS calls. The agent did
+not seal/apply during implementation. The subsequent human
+maintenance execution is recorded below. Bootstrap logic/declarations/guards and
+aws-config PR #7 remain unchanged.
+
+## Completed genuine human maintenance execution
+
+The human supplied successful execution history, corroborated by local retained
+manifest/postflight/state records:
+
+```text
+genuine same-owner live plan → sealed exact maintenance bundle
+  → explicit human mutation approval → exact saved-plan apply
+  → read-only postflight success → original retained state remains authoritative
+```
+
+- Creates: 0; Changes: 1; Deletes: 0.
+- Only changed resource: aws_ssoadmin_permission_set_inline_policy.inline_policy.
+- Human-reviewed maintenance manifest SHA-256:
+  `11ce404bb2998a75df3e637717e991638880ffefa1cb293a310f89552c78c4b0`.
+- Owner profile/account: identity-center-admin / 835990279085.
+- Permission set, PT1H and USER b4486448-d011-7037-9cfb-c16c43f591e1 assignment
+  into account 623155450153 remained unchanged.
+- No AWS managed policies or customer-managed policies were attached.
+- The original 24 IAM actions remained unchanged; exactly the single config ARN
+  was added to the existing ssm:GetParameter resource list, with no other delta.
+- Same retained local state remains authoritative; no second owner, import,
+  adoption, state migration or permission-set recreation occurred.
+- Read-only postflight returned verified and the workload-role probe reported:
+  `GetParameter permitted; ParameterNotFound`.
+  This proves authorization succeeded at postflight and the parameter was absent
+  then. It does not claim publication or current parameter existence.
+- No SSM config publication or artifact-bucket deployment occurred.
+
+The updated retained state policy equals the reviewed maintenance declaration.
+The old planning-state digest is historical pre-apply evidence, not the current
+applied-state digest. Retain both immutable review inputs and updated owner state;
+do not replay seal/apply or replace state with an old snapshot. Only the explicit
+human-supplied digest and non-secret summary are committed; raw state/plan/logs and
+postflight evidence remain private/untracked.
+
+aws-config PR #7's AccessDenied finding is now historical. Its remaining code/PR
+dependency is PR #13 merged with declarative IAM state on main; it remains untouched
+until that happens. Later config publication and workload execution still require
+separate review/authorization. This documentation finalization changes no policy,
+Terraform, maintenance behavior, ownership or safety boundary.
+
+## Documentation finalization verification
+
+The finalization changes only the spec and component README. Full relevant local
+checks pass: 100 Python tests with one existing skip, six Terraform mock runs,
+backend-disabled Identity Center validation, recursive formatting and diff checks.
+Final-head CI is checked separately before human merge review. No policy, source,
+state-ownership or safety behavior is changed; no AWS APIs/mutations, publication,
+apply or replay are performed during finalization. PR #7 remains untouched.
