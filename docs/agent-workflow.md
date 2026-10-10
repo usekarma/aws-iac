@@ -129,3 +129,13 @@ Architect/Builder/Reviewer/Security/Operations reports. Run
 `python3 scripts/agent_workflow.py /PRIVATE/work-request.json`. It writes ignored
 private evidence, permits one explicit repository remediation continuation, and
 ends at STOP_FOR_HUMAN. No live plan, AWS operation or deployment is executed.
+
+## Human saved-plan workload apply
+
+The separate [artifact-bucket saved-plan workflow](../specs/workload-saved-plan-apply.md)
+seals an existing normal SSM-backed plan and allows a human to execute that exact
+binary after independent digest review and explicit mutation approval. It is
+limited to `s3-bucket/iot-digital-twin-artifacts` in account `623155450153` and
+rejects agents. It retains the original S3 backend owner; it never initializes or
+replans during apply. The normal `deploy.sh`/`plan.sh` safeguards are unchanged.
+Agents may implement/test this path, but must stop before human seal/apply.

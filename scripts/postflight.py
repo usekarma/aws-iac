@@ -18,6 +18,61 @@ EC2 = {
 }
 
 
+def check_artifact_bucket(read):
+    """Exact prototype controls; injected reads allow restricted-role tests/execution."""
+    bucket = "623155450153-iot-digital-twin-artifacts"
+    owner = ["--bucket", bucket, "--expected-bucket-owner", "623155450153"]
+    read("s3api", "head-bucket", *owner)
+    location = read("s3api", "get-bucket-location", *owner).get("LocationConstraint")
+    if location not in (None, "", "us-east-1"):
+        raise ValueError("Postflight bucket region mismatch")
+    if read("s3api", "get-bucket-versioning", *owner).get("Status") != "Enabled":
+        raise ValueError("Postflight bucket versioning mismatch")
+    rules = read("s3api", "get-bucket-ownership-controls", *owner)["OwnershipControls"]["Rules"]
+    if rules != [{"ObjectOwnership": "BucketOwnerEnforced"}]:
+        raise ValueError("Postflight bucket ownership mismatch")
+    block = read("s3api", "get-public-access-block", *owner)["PublicAccessBlockConfiguration"]
+    if any(
+        block.get(k) is not True
+        for k in (
+            "BlockPublicAcls",
+            "BlockPublicPolicy",
+            "IgnorePublicAcls",
+            "RestrictPublicBuckets",
+        )
+    ):
+        raise ValueError("Postflight bucket public access mismatch")
+    encryption = read("s3api", "get-bucket-encryption", *owner)[
+        "ServerSideEncryptionConfiguration"
+    ]["Rules"]
+    if len(encryption) != 1 or encryption[0].get("ApplyServerSideEncryptionByDefault") != {
+        "SSEAlgorithm": "AES256"
+    }:
+        raise ValueError("Postflight bucket encryption mismatch")
+    for operation, code in (
+        ("get-bucket-website", "NoSuchWebsiteConfiguration"),
+        ("get-bucket-policy", "NoSuchBucketPolicy"),
+        ("get-bucket-lifecycle-configuration", "NoSuchLifecycleConfiguration"),
+    ):
+        try:
+            read("s3api", operation, *owner)
+        except ValueError as exc:
+            if "(" + code + ") when calling" not in str(exc) or "AccessDenied" in str(exc):
+                raise
+        else:
+            raise ValueError("Postflight unexpected bucket configuration: " + operation)
+    parameter = read(
+        "ssm", "get-parameter", "--name", "/iac/s3-bucket/iot-digital-twin-artifacts/runtime"
+    )["Parameter"]
+    if (
+        parameter.get("Name") != "/iac/s3-bucket/iot-digital-twin-artifacts/runtime"
+        or parameter.get("Type") != "String"
+        or json.loads(parameter["Value"]) != {"bucket_name": bucket}
+    ):
+        raise ValueError("Postflight runtime parameter mismatch")
+    return True
+
+
 def query(args):
     result = subprocess.run(
         [
