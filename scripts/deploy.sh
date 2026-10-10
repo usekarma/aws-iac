@@ -91,7 +91,7 @@ elif [[ "${#EXTRA_ARGS[@]}" -gt 0 ]]; then
   echo "--auto-approve is valid only for approved apply/destroy" >&2
   exit 1
 fi
-./scripts/preflight.sh
+IAC_PREFLIGHT_COMPONENT="$COMPONENT" ./scripts/preflight.sh
 # Reject identity/argument overrides that could diverge from the reviewed target.
 while IFS= read -r variable; do
   case "$variable" in

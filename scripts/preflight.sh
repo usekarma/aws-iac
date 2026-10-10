@@ -8,6 +8,11 @@ set -euo pipefail
 [[ "$EXPECTED_AWS_ACCOUNT" =~ ^[0-9]{12}$ ]] || { echo "Invalid account ID" >&2; exit 1; }
 [[ "$AWS_REGION" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] || { echo "Invalid region" >&2; exit 1; }
 [[ "${IAC_PREFIX:-/iac}" =~ ^(/[a-zA-Z0-9_-]+)+$ ]] || { echo "Invalid IAC_PREFIX; use an absolute path without trailing slash" >&2; exit 1; }
+# This bootstrap component belongs to the verified Identity Center owner context.
+# Profile nicknames never establish administration authority.
+if [[ "${IAC_PREFLIGHT_COMPONENT:-}" == "identity-center-permission-set" ]]; then
+  [[ "$EXPECTED_AWS_ACCOUNT" == "835990279085" && "$AWS_REGION" == "us-east-1" ]] || { echo "Identity Center requires administration account 835990279085 in us-east-1" >&2; exit 1; }
+fi
 # Avoid identity divergence between the AWS CLI and Terraform/provider SDKs.
 for variable in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_ARN AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI; do
   [[ -z "${!variable:-}" ]] || { echo "Unset $variable; use only the named profile" >&2; exit 1; }
