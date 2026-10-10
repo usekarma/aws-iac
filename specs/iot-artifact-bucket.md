@@ -166,3 +166,28 @@ whitespace checks pass. Backend-disabled module initialization/validation pass.
 Two mock-provider Terraform plan tests pass. Initial checks without the explicit
 config checkout and without sandbox registry/provider IPC access failed; corrected
 invocations passed. No live plan, plan digest, or postflight evidence exists.
+
+## Fresh verification after PR #12 merge
+
+PR #11 was rebased onto main containing prerequisite merge
+7b05c34f94fbb2d699ab2ec4dc73526d85f3a3ca. The fresh plan was generated from
+rebased source 6395c0d4d91b0e076154869f6a33facafde890ab; the subsequent evidence-status edit changes documentation
+only. Range-diff confirmed the two original PR #11 commits retained their changes.
+No textual conflicts required resolution. The merged deployment/preflight path
+retains Identity Center owner checks, S3 creation-plan-only config override,
+agent-mode mutation blocking and separate normal human mutation approval.
+AGENTS.md and the inherited bootstrap implementation remain unchanged.
+
+Full deterministic verification passes: 85 Python tests with one existing skip,
+backend-disabled S3 Terraform validation, two S3 mock-provider plan tests,
+recursive formatting and diff whitespace checks. The restricted strall-dev-plan
+identity, exact account, dev binding and expected backend were verified again.
+The genuine fresh saved plan was privately inspected: exactly the six expected
+creates, zero changes/deletes/replacements/drift, reviewed bucket/security controls,
+no website/public policy/expiration configuration and no denied read.
+
+New raw plan/JSON/context/evidence remain private and untracked. Earlier pre-rebase
+plan evidence is historical and is not used as proof of the updated source.
+No apply, config publication, IAM change or Lambda artifact upload is authorized
+by the rebase or successful plan. Human review and separate execution approval
+remain required; eventual published-config execution requires a new reviewed plan.
