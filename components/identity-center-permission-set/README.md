@@ -213,3 +213,14 @@ AWSReservedSSO_IaCPlanReadOnly_92e4b2f1ca02a611: six creates, no changes/deletes
 The bootstrap script did not configure profiles or perform workload planning.
 Agents continue using restricted IAM for ordinary planning; no additional apply,
 role/policy modification or state migration is authorized by merge review.
+
+## Existing-owner maintenance proposal
+
+The single missing config-path GetParameter resource grant is prepared as a
+separate reviewed maintenance declaration and HUMAN-only plan interface. It uses
+the retained bootstrap state in place and never replays create-only bootstrap,
+initializes a second backend or applies an update. See
+[maintenance scope and human command](../../specs/iac-plan-config-read-maintenance.md).
+The original bootstrap policy/guards remain pinned. Normal agents retain their
+restricted planning role; the grant is not deployed until a separately reviewed
+human update is explicitly approved and executed.
