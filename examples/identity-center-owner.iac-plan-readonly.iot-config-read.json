@@ -1,0 +1,166 @@
+{
+  "administration_account_id": "835990279085",
+  "permission_set_name": "IaCPlanReadOnly",
+  "description": "Read-only Terraform planning for strall-dev IoT artifact infrastructure",
+  "session_duration": "PT1H",
+  "instance_arn": "arn:aws:sso:::instance/ssoins-7223e8cbef5c5b91",
+  "inline_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "IdentityAndParameterMetadata",
+        "Effect": "Allow",
+        "Action": [
+          "sts:GetCallerIdentity",
+          "ssm:DescribeParameters"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "ReadBindingAndRuntime",
+        "Effect": "Allow",
+        "Action": "ssm:GetParameter",
+        "Resource": [
+          "arn:aws:ssm:us-east-1:623155450153:parameter/iac/environment",
+          "arn:aws:ssm:us-east-1:623155450153:parameter/iac/s3-bucket/iot-digital-twin-artifacts/runtime",
+          "arn:aws:ssm:us-east-1:623155450153:parameter/iac/s3-bucket/iot-digital-twin-artifacts/config",
+          "arn:aws:ssm:us-east-1:623155450153:parameter/iac/iot-digital-twin/core2-aws-001/config"
+        ]
+      },
+      {
+        "Sid": "ReadRuntimeTags",
+        "Effect": "Allow",
+        "Action": "ssm:ListTagsForResource",
+        "Resource": "arn:aws:ssm:us-east-1:623155450153:parameter/iac/s3-bucket/iot-digital-twin-artifacts/runtime"
+      },
+      {
+        "Sid": "ReadStateBucket",
+        "Effect": "Allow",
+        "Action": [
+          "s3:ListBucket",
+          "s3:GetBucketVersioning"
+        ],
+        "Resource": "arn:aws:s3:::623155450153-tf-state"
+      },
+      {
+        "Sid": "ReadExactComponentState",
+        "Effect": "Allow",
+        "Action": "s3:GetObject",
+        "Resource": "arn:aws:s3:::623155450153-tf-state/s3-bucket/iot-digital-twin-artifacts/terraform.tfstate"
+      },
+      {
+        "Sid": "ReadBackendTableAndDigest",
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:DescribeTable",
+          "dynamodb:GetItem"
+        ],
+        "Resource": "arn:aws:dynamodb:us-east-1:623155450153:table/623155450153-tf-locks"
+      },
+      {
+        "Sid": "RefreshArtifactBucketSettings",
+        "Effect": "Allow",
+        "Action": [
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+          "s3:GetBucketTagging",
+          "s3:GetBucketAcl",
+          "s3:GetBucketCors",
+          "s3:GetBucketWebsite",
+          "s3:GetBucketVersioning",
+          "s3:GetBucketLogging",
+          "s3:GetBucketRequestPayment",
+          "s3:GetAccelerateConfiguration",
+          "s3:GetBucketPolicy",
+          "s3:GetBucketObjectLockConfiguration",
+          "s3:GetReplicationConfiguration",
+          "s3:GetLifecycleConfiguration",
+          "s3:GetEncryptionConfiguration",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:GetBucketOwnershipControls"
+        ],
+        "Resource": "arn:aws:s3:::623155450153-iot-digital-twin-artifacts"
+      },
+      {
+        "Sid": "OwnerIdentityCenterInstanceDiscovery",
+        "Effect": "Allow",
+        "Action": "sso:ListInstances",
+        "Resource": "*",
+        "Condition": {
+          "StringEquals": {
+            "aws:PrincipalAccount": "835990279085",
+            "aws:RequestedRegion": "us-east-1"
+          }
+        }
+      },
+      {
+        "Sid": "OwnerIdentityCenterPermissionSetDiscovery",
+        "Effect": "Allow",
+        "Action": "sso:ListPermissionSets",
+        "Resource": "arn:aws:sso:::instance/ssoins-7223e8cbef5c5b91",
+        "Condition": {
+          "StringEquals": {
+            "aws:PrincipalAccount": "835990279085",
+            "aws:RequestedRegion": "us-east-1"
+          }
+        }
+      },
+      {
+        "Sid": "OwnerIdentityCenterPermissionSetReads",
+        "Effect": "Allow",
+        "Action": [
+          "sso:DescribePermissionSet",
+          "sso:GetInlinePolicyForPermissionSet",
+          "sso:ListTagsForResource",
+          "sso:ListManagedPoliciesInPermissionSet",
+          "sso:ListCustomerManagedPolicyReferencesInPermissionSet"
+        ],
+        "Resource": [
+          "arn:aws:sso:::instance/ssoins-7223e8cbef5c5b91",
+          "arn:aws:sso:::permissionSet/ssoins-7223e8cbef5c5b91/ps-*"
+        ],
+        "Condition": {
+          "StringEquals": {
+            "aws:PrincipalAccount": "835990279085",
+            "aws:RequestedRegion": "us-east-1"
+          }
+        }
+      },
+      {
+        "Sid": "OwnerIdentityCenterAccountAssignmentReads",
+        "Effect": "Allow",
+        "Action": "sso:ListAccountAssignments",
+        "Resource": [
+          "arn:aws:sso:::instance/ssoins-7223e8cbef5c5b91",
+          "arn:aws:sso:::permissionSet/ssoins-7223e8cbef5c5b91/ps-*",
+          "arn:aws:sso:::account/623155450153",
+          "arn:aws:sso:::account/835990279085"
+        ],
+        "Condition": {
+          "StringEquals": {
+            "aws:PrincipalAccount": "835990279085",
+            "aws:RequestedRegion": "us-east-1"
+          }
+        }
+      }
+    ]
+  },
+  "assignments": [
+    {
+      "target_account_id": "623155450153",
+      "principal_type": "USER",
+      "principal_id": "b4486448-d011-7037-9cfb-c16c43f591e1"
+    },
+    {
+      "target_account_id": "835990279085",
+      "principal_type": "USER",
+      "principal_id": "b4486448-d011-7037-9cfb-c16c43f591e1"
+    }
+  ],
+  "tags": {
+    "Project": "iac-planning",
+    "Environment": "identity-center-owner",
+    "Owner": "strall",
+    "Purpose": "Scoped read-only planning in strall-dev"
+  }
+}
