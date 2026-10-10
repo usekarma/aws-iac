@@ -9,10 +9,17 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ACTION="apply"
 DESTROY_PLAN=0
 EXTRA_ARGS=()
+AUTO_APPROVE=0
+PLAN_CONFIG=""
 
 # Parse flags and arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --plan-config)
+      [[ $# -ge 2 ]] || { echo "--plan-config requires a JSON file" >&2; exit 1; }
+      PLAN_CONFIG="$2"
+      shift 2
+      ;;
     -d|--destroy)
       ACTION="destroy"
       shift
@@ -31,6 +38,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --auto-approve)
+      AUTO_APPROVE=1
       EXTRA_ARGS+=(--auto-approve)
       shift
       ;;
@@ -52,11 +60,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$PLAN_CONFIG" ]]; then
+  [[ "$ACTION" == "plan" && "$DESTROY_PLAN" == "0" && "${COMPONENT:-}" == "s3-bucket" ]] || { echo "--plan-config is only supported for s3-bucket creation plans" >&2; exit 1; }
+  [[ -f "$PLAN_CONFIG" ]] || { echo "Plan config file does not exist" >&2; exit 1; }
+  PLAN_CONFIG_JSON=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$PLAN_CONFIG")
+  EXTRA_ARGS+=("-var=plan_config_json=$PLAN_CONFIG_JSON")
+fi
+
 # Agent mode cannot be overridden by a human acknowledgement in the environment.
 if [[ "${AGENT_MODE:-0}" != "0" && "${AGENT_MODE:-0}" != "1" ]]; then
   echo "AGENT_MODE must be 0 or 1" >&2; exit 1
 fi
-if [[ "${AGENT_MODE:-0}" == "1" && ( "$ACTION" != "plan" && "$ACTION" != "validate" || "${#EXTRA_ARGS[@]}" -gt 0 ) ]]; then
+if [[ "${AGENT_MODE:-0}" == "1" && ( "$ACTION" != "plan" && "$ACTION" != "validate" || "$AUTO_APPROVE" == "1" ) ]]; then
   echo "AGENT_MODE=1 blocks apply, destroy and auto-approve. Use scripts/plan.sh or --validate; execution requires a separately approved human path." >&2
   exit 1
 fi
@@ -87,7 +102,7 @@ if status.get("status") == "incomplete":
 PY_STATUS
 if [[ "$ACTION" == "apply" || "$ACTION" == "destroy" ]]; then
   [[ "${AWS_MUTATION_APPROVED:-}" == "1" ]] || { echo "Explicit human approval required; see AGENTS.md" >&2; exit 1; }
-elif [[ "${#EXTRA_ARGS[@]}" -gt 0 ]]; then
+elif [[ "$AUTO_APPROVE" == "1" ]]; then
   echo "--auto-approve is valid only for approved apply/destroy" >&2
   exit 1
 fi

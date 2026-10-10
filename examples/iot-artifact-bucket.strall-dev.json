@@ -1,0 +1,16 @@
+{
+  "bucket_name": "623155450153-iot-digital-twin-artifacts",
+  "project": "iot-digital-twin",
+  "versioning": true,
+  "force_destroy": false,
+  "enforce_owner": true,
+  "enable_encryption": true,
+  "sse_algorithm": "AES256",
+  "block_public_access": true,
+  "tags": {
+    "Environment": "dev",
+    "Project": "iot-digital-twin",
+    "Owner": "strall",
+    "Purpose": "IoT digital-twin prototype Lambda artifacts"
+  }
+}

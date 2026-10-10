@@ -12,6 +12,30 @@ This Terraform component provisions a general-purpose Amazon S3 bucket with opti
 - Writes runtime values to SSM Parameter Store
 - Supports standard tagging and force-destroy behavior
 
+## Unpublished artifact-bucket proposal (plan only)
+
+For configuration not yet published to SSM, the existing component accepts
+an explicit JSON proposal through the guarded planning wrapper:
+
+```bash
+export AGENT_MODE=1 AWS_PROFILE=strall-dev AWS_REGION=us-east-1
+export EXPECTED_AWS_ACCOUNT=623155450153 EXPECTED_ENVIRONMENT=dev
+export EXPECTED_BINDING=strall-com-dev IAC_PREFIX=/iac
+# First establish dedicated read-only IAM and verify STS identity again.
+bash scripts/plan.sh s3-bucket iot-digital-twin-artifacts \
+  --plan-config examples/iot-artifact-bucket.strall-dev.json
+```
+
+The profile must use read-only IAM, not its current AdministratorAccess session.
+See [the target specification](../../specs/iot-artifact-bucket.md) for the exact
+six expected creates and permission requirements. The wrapper rejects this option
+for apply, destroy, destroy-plan, validation and other components. It reads no
+config SSM parameter for the proposal and publishes nothing during planning.
+Normal callers retain the existing SSM input path. Runtime SSM is still included
+as a planned supporting resource. Before deployment, separately review/publish
+aws-config inputs and regenerate the plan without the override. No apply is
+authorized by this example or the saved proposal.
+
 ---
 
 ## Usage
