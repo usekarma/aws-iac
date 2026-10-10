@@ -202,9 +202,10 @@ checks and existing backend safeguards. No profile edits occur in this PR.
 
 The verified human execution used identity-center-admin in owner account
 835990279085, a sealed three-create saved plan, separate explicit apply approval,
-and successful read-only postflight. IaCPlanReadOnly, its unchanged reviewed
-inline policy and the USER assignment into 623155450153 now exist. No managed
-policies are attached. Local bootstrap state remains private and must be retained.
+and successful read-only postflight. That bootstrap created IaCPlanReadOnly with
+the initial reviewed inline policy and USER assignment into 623155450153. The
+separately approved maintenance below records its later single-resource revision.
+No managed policies are attached. Local bootstrap state remains private and must be retained.
 The execution manifest digest is recorded in the spec at the human's request.
 
 The CLI profile was configured separately afterward. strall-dev-plan successfully
@@ -213,3 +214,21 @@ AWSReservedSSO_IaCPlanReadOnly_92e4b2f1ca02a611: six creates, no changes/deletes
 The bootstrap script did not configure profiles or perform workload planning.
 Agents continue using restricted IAM for ordinary planning; no additional apply,
 role/policy modification or state migration is authorized by merge review.
+
+## Completed existing-owner config-read maintenance
+
+The single config-path GetParameter resource grant has now been applied by the
+human using the genuine sealed maintenance plan. Its desired state is recorded as a
+separate reviewed maintenance declaration and HUMAN-only plan/seal/saved-plan
+apply interface. It retains the bootstrap state owner in place, never replays
+create-only bootstrap or initializes another backend, and requires separate
+mutation approval plus the independently recorded maintenance manifest digest. See
+[maintenance scope and human command](../../specs/iac-plan-config-read-maintenance.md).
+The original bootstrap policy/guards remain pinned. Normal agents retain their
+restricted planning role. Execution was 0 creates, 1 inline-policy update, 0 deletes;
+PT1H/permission set/USER assignment and the original 24 actions remain unchanged.
+No second state owner or managed-policy attachment was created. Read-only postflight
+verified the exact delta and reported GetParameter permitted; ParameterNotFound
+for strall-dev-plan. This proves config-read authorization, not publication or
+parameter existence. No SSM config was published or artifact bucket deployed.
+Retain the updated original state and do not replay the historical seal/apply.
