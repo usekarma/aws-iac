@@ -83,6 +83,12 @@ approved scope. Prefer executing the exact approved saved plan from its cache th
 Terraform after rerunning preflight; this is a separately approved mutation, not an
 autonomous agent command. Saved plans execute without an additional confirmation prompt.
 
+For `s3-bucket/iot-digital-twin-artifacts`, use the separate
+[human seal and saved-plan apply workflow](specs/workload-saved-plan-apply.md).
+It verifies the independently recorded manifest digest, rejects changed inputs,
+retains the existing remote backend and checks read-only postflight. Agents cannot
+seal or execute this path. The existing deployment runner is unchanged.
+
 Backend bootstrapping with `scripts/bootstrap/remote_state.sh` also requires approval
 and preflight. It can create/update S3/DynamoDB and retention rules. Neither verification
 nor planning bootstraps a backend. Approval must cover all resource/data consequences.
