@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HUMAN-only plan-only maintenance using the existing bootstrap local state owner."""
+"""HUMAN-only sealed saved-plan maintenance of the existing bootstrap state owner."""
 
 import argparse
 import copy
@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 import bootstrap_identity_center as bootstrap
 from evidence import generate, load
@@ -28,7 +29,7 @@ def guard(env):
     if env.get("HUMAN_MAINTENANCE_APPROVED") != "1":
         raise ValueError("Explicit HUMAN_MAINTENANCE_APPROVED=1 required; no apply is authorized")
     if (
-        not env.get("AWS_PROFILE")
+        env.get("AWS_PROFILE") != "identity-center-admin"
         or env.get("AWS_REGION") != "us-east-1"
         or env.get("EXPECTED_AWS_ACCOUNT") != bootstrap.OWNER
     ):
@@ -341,18 +342,362 @@ def maintenance_plan(env, owner):
     return out
 
 
+def review_directory(owner, review):
+    raw = Path(review)
+    out = raw.resolve(strict=True)
+    if (
+        raw.is_symlink()
+        or out.parent != owner / "maintenance-reviews"
+        or not out.name.startswith("config-read-")
+        or not out.is_dir()
+    ):
+        raise ValueError("Use a maintenance review beneath the retained original owner")
+    return out
+
+
+def inventories(owner, out):
+    review_names = {
+        "review.tfplan",
+        "plan.json",
+        "context.json",
+        "owner.json",
+        "maintenance.tfvars.json",
+        "evidence/evidence.json",
+        "evidence/summary.md",
+    }
+    owner_names = {
+        "terraform.tfstate",
+        "review-manifest.json",
+        "post-apply.json",
+        "bootstrap.tfvars.json",
+        "bootstrap_override.tf",
+        ".terraform.lock.hcl",
+        ".terraform/terraform.tfstate",
+    } | {p.name for p in (ROOT / "components" / bootstrap.COMPONENT).glob("*.tf")}
+    for base, names in ((out, review_names), (owner, owner_names)):
+        for name in names:
+            file = base / name
+            if not file.is_file() or file.is_symlink() or not file.resolve().is_relative_to(base):
+                raise ValueError("Missing/unsafe maintenance review input: " + name)
+    return sorted(owner_names), sorted(review_names)
+
+
+def read_saved_plan(owner, out, env):
+    result = subprocess.run(
+        ["terraform", "show", "-json", str(out / "review.tfplan")],
+        cwd=owner,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        raise ValueError("Cannot export saved maintenance plan; no mutation allowed")
+    return json.loads(result.stdout)
+
+
+def validate_review(owner_path, review_path, env):
+    old, new = declarations()
+    owner, state, arn = validate_owner(owner_path, old)
+    out = review_directory(owner, review_path)
+    inventories(owner, out)
+    recorded = load(out / "owner.json")
+    expected = {
+        "owner_directory": str(owner),
+        "lineage": state["lineage"],
+        "serial": state["serial"],
+        "state_sha256": bootstrap.sha256(owner / "terraform.tfstate"),
+        "declaration_sha256": bootstrap.sha256(ROOT / DECLARATION),
+    }
+    if any(recorded.get(k) != v for k, v in expected.items()):
+        raise ValueError("Owner state/declaration changed since maintenance planning")
+    context = load(out / "context.json")
+    if context.get("synthetic") is not False or any(
+        context.get(k) != v
+        for k, v in {
+            "component": bootstrap.COMPONENT,
+            "account": bootstrap.OWNER,
+            "region": "us-east-1",
+            "profile": env["AWS_PROFILE"],
+        }.items()
+    ):
+        raise ValueError("Maintenance review identity/context mismatch")
+    evidence = load(out / "evidence/evidence.json")
+    bootstrap.verify_ancestor(evidence.get("repository_commit"))
+    if (
+        evidence.get("source", {}).get("synthetic") is not False
+        or evidence["source"].get("plan_json_sha256") != bootstrap.sha256(out / "plan.json")
+        or evidence["source"].get("saved_plan_sha256") != bootstrap.sha256(out / "review.tfplan")
+    ):
+        raise ValueError("Original maintenance evidence plan digests differ")
+    if (
+        evidence.get("context") != {k: context[k] for k in evidence.get("context", {})}
+        or evidence.get("context", {}).get("component") != bootstrap.COMPONENT
+    ):
+        raise ValueError("Maintenance evidence/context mismatch")
+    inputs = load(owner / "bootstrap.tfvars.json")
+    inputs["bootstrap_config_json"] = json.dumps(new)
+    if load(out / "maintenance.tfvars.json") != inputs:
+        raise ValueError("Maintenance variables differ from reviewed declaration")
+    with zipfile.ZipFile(out / "review.tfplan") as archive:
+        names = archive.namelist()
+        expected_sources = {"tfconfig/m-/" + p.name for p in owner.glob("*.tf")}
+        if (
+            len(names) != len(set(names))
+            or {n for n in names if n.startswith("tfconfig/") and n.endswith((".tf", ".tf.json"))}
+            != expected_sources
+        ):
+            raise ValueError("Saved maintenance plan source inventory mismatch")
+        for name in expected_sources:
+            if archive.read(name) != (owner / name.removeprefix("tfconfig/m-/")).read_bytes():
+                raise ValueError("Saved maintenance plan source changed")
+        if archive.read(".terraform.lock.hcl") != (owner / ".terraform.lock.hcl").read_bytes():
+            raise ValueError("Saved maintenance provider lock mismatch")
+        # Terraform's in-memory archive omits file lineage/serial; owner.json pins
+        # those plus the full live file hash. Verify archived managed states too.
+        previous = json.loads(archive.read("tfstate-prev"))
+
+        def managed(s):
+            return [r for r in s["resources"] if r["mode"] == "managed"]
+
+        if managed(previous) != managed(state):
+            raise ValueError("Saved plan belongs to different managed state")
+    plan = read_saved_plan(owner, out, env)
+    if plan != load(out / "plan.json"):
+        raise ValueError("Saved maintenance binary/JSON differ")
+    validate_update(plan, old, new)
+    variables = {k: v["value"] for k, v in plan.get("variables", {}).items()}
+    if any(variables.get(k) != v for k, v in inputs.items()):
+        raise ValueError("Saved maintenance variables differ")
+    return owner, out, arn, old, new
+
+
+def seal_review(env, owner_path, review_path):
+    guard(env)
+    owner, out, _, _, _ = validate_review(owner_path, review_path, env)
+    path = out / "maintenance-manifest.json"
+    if path.exists():
+        raise ValueError("Never overwrite/reseal an existing maintenance manifest")
+    owner_names, review_names = inventories(owner, out)
+    manifest = {
+        "schema_version": 1,
+        "component": bootstrap.COMPONENT,
+        "account": bootstrap.OWNER,
+        "owner_directory": str(owner),
+        "review_directory": str(out),
+        "repository": bootstrap.repository_identity(),
+        "owner_files": {n: bootstrap.sha256(owner / n) for n in owner_names},
+        "review_files": {n: bootstrap.sha256(out / n) for n in review_names},
+        "repository_inputs": {
+            n: bootstrap.sha256(ROOT / n)
+            for n in (
+                DECLARATION,
+                bootstrap.DECLARATION,
+                "scripts/maintain_identity_center.py",
+                "scripts/bootstrap_identity_center.py",
+                "scripts/evidence.py",
+            )
+        },
+    }
+    os.umask(0o077)
+    with path.open("x") as output:
+        output.write(json.dumps(manifest, indent=2) + "\n")
+    path.chmod(0o400)
+    digest = bootstrap.sha256(path)
+    print(
+        "Maintenance manifest sealed without state/plan changes. Independently record SHA-256: "
+        + digest
+    )
+    return digest
+
+
+def verify_manifest(owner, out, digest):
+    path = out / "maintenance-manifest.json"
+    if not digest or path.is_symlink() or bootstrap.sha256(path) != digest:
+        raise ValueError("Maintenance manifest differs from independently reviewed digest")
+    manifest = load(path)
+    if (
+        manifest.get("schema_version") != 1
+        or manifest.get("component") != bootstrap.COMPONENT
+        or manifest.get("account") != bootstrap.OWNER
+        or manifest.get("owner_directory") != str(owner)
+        or manifest.get("review_directory") != str(out)
+        or manifest.get("repository", {}).get("name") != bootstrap.repository_identity()["name"]
+    ):
+        raise ValueError("Maintenance manifest identity mismatch")
+    bootstrap.verify_ancestor(manifest["repository"]["commit"])
+    owner_names, review_names = inventories(owner, out)
+    for base, key, names in (
+        (owner, "owner_files", owner_names),
+        (out, "review_files", review_names),
+    ):
+        if set(manifest.get(key, {})) != set(names):
+            raise ValueError("Maintenance manifest file inventory mismatch")
+        for name in names:
+            if bootstrap.sha256(base / name) != manifest[key][name]:
+                raise ValueError("Maintenance input changed: " + name)
+    expected_inputs = {
+        DECLARATION,
+        bootstrap.DECLARATION,
+        "scripts/maintain_identity_center.py",
+        "scripts/bootstrap_identity_center.py",
+        "scripts/evidence.py",
+    }
+    if set(manifest.get("repository_inputs", {})) != expected_inputs:
+        raise ValueError("Maintenance manifest repository input inventory mismatch")
+    for name, expected in manifest["repository_inputs"].items():
+        if bootstrap.sha256(ROOT / name) != expected:
+            raise ValueError("Maintenance declaration/script changed: " + name)
+
+
+def workload_probe(env):
+    restricted = env | {
+        "AWS_PROFILE": "strall-dev-plan",
+        "AWS_REGION": "us-east-1",
+        "AWS_DEFAULT_REGION": "us-east-1",
+    }
+    identity = bootstrap.aws(restricted, "sts", "get-caller-identity")
+    if identity.get("Account") != "623155450153" or not identity.get("Arn", "").startswith(
+        "arn:aws:sts::623155450153:assumed-role/AWSReservedSSO_IaCPlanReadOnly_"
+    ):
+        raise ValueError("Postflight workload identity mismatch")
+    result = subprocess.run(
+        [
+            "aws",
+            "--profile",
+            "strall-dev-plan",
+            "--region",
+            "us-east-1",
+            "ssm",
+            "get-parameter",
+            "--name",
+            "/iac/s3-bucket/iot-digital-twin-artifacts/config",
+            "--query",
+            "Parameter.Version",
+            "--output",
+            "json",
+            "--no-cli-pager",
+        ],
+        env=restricted,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return "GetParameter permitted; parameter exists"
+    if (
+        "(ParameterNotFound) when calling the GetParameter operation" in result.stderr
+        and "AccessDenied" not in result.stderr
+    ):
+        return "GetParameter permitted; ParameterNotFound"
+    raise ValueError("Postflight restricted config read failed: " + result.stderr.strip())
+
+
+def maintenance_apply(env, owner_path, review_path, digest):
+    guard(env)
+    if env.get("AWS_MUTATION_APPROVED") != "1":
+        raise ValueError("Maintenance apply additionally requires AWS_MUTATION_APPROVED=1")
+    env = env | {
+        "AWS_DEFAULT_REGION": "us-east-1",
+        "AWS_PAGER": "",
+        "AWS_EC2_METADATA_DISABLED": "true",
+    }
+    owner = bootstrap.review_directory(owner_path)
+    out = review_directory(owner, review_path)
+    if (out / "apply.log").exists() or (out / "post-apply.json").exists():
+        raise ValueError(
+            "Maintenance execution already attempted; inspect retained state/logs, never retry automatically"
+        )
+    verify_manifest(owner, out, digest)
+    owner, out, arn, old, new = validate_review(owner, out, env)
+    live_checks(env, arn, old)
+    verify_manifest(owner, out, digest)
+    os.umask(0o077)
+    with (out / "apply.log").open("x") as log:
+        result = subprocess.run(
+            ["terraform", "apply", "-input=false", "-no-color", str(out / "review.tfplan")],
+            cwd=owner,
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+    if result.returncode:
+        (out / "post-apply.json").write_text(
+            json.dumps(
+                {
+                    "status": "apply-failed-may-be-partial",
+                    "manifest_sha256": digest,
+                    "automatic_retry": False,
+                }
+            )
+            + "\n"
+        )
+        raise ValueError(
+            "Maintenance apply failed; retain state/logs, never retry or rollback automatically"
+        )
+    try:
+        live_checks(env, arn, new)  # Exact new policy proves unchanged 24 actions and one ARN.
+        probe = workload_probe(env)
+        record = {
+            "status": "verified",
+            "manifest_sha256": digest,
+            "permission_set_arn": arn,
+            "session_duration": "PT1H",
+            "assignment_unchanged": True,
+            "inline_policy_exact": True,
+            "original_actions_unchanged": True,
+            "managed_policies": [],
+            "customer_managed_policies": [],
+            "config_read_probe": probe,
+        }
+    except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+        record = {
+            "status": "postflight-failed",
+            "manifest_sha256": digest,
+            "mutation_already_performed": True,
+            "error": str(exc),
+            "automatic_retry": False,
+        }
+        (out / "post-apply.json").write_text(json.dumps(record, indent=2) + "\n")
+        raise
+    (out / "post-apply.json").write_text(json.dumps(record, indent=2) + "\n")
+    print(
+        "Human maintenance saved-plan apply and read-only postflight verified; retain original owner state."
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["plan"])
+    parser.add_argument("action", choices=["plan", "seal", "apply"])
     parser.add_argument("component", choices=[bootstrap.COMPONENT])
     parser.add_argument("--owner-dir", required=True)
+    parser.add_argument("--review-dir")
+    parser.add_argument("--manifest-sha256")
     args = parser.parse_args()
-    maintenance_plan(dict(os.environ), args.owner_dir)
+    if args.action == "plan":
+        if args.review_dir or args.manifest_sha256:
+            parser.error("plan cannot accept saved-review arguments")
+        maintenance_plan(dict(os.environ), args.owner_dir)
+    elif not args.review_dir:
+        parser.error("seal/apply require --review-dir")
+    elif args.action == "seal":
+        if args.manifest_sha256:
+            parser.error("seal cannot accept a manifest digest")
+        seal_review(dict(os.environ), args.owner_dir, args.review_dir)
+    elif not args.manifest_sha256:
+        parser.error("apply requires independently reviewed --manifest-sha256")
+    else:
+        maintenance_apply(dict(os.environ), args.owner_dir, args.review_dir, args.manifest_sha256)
 
 
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+    except (
+        ValueError,
+        OSError,
+        KeyError,
+        TypeError,
+        zipfile.BadZipFile,
+        subprocess.SubprocessError,
+    ) as exc:
         print("STOP_FOR_HUMAN: " + str(exc), file=sys.stderr)
         sys.exit(1)

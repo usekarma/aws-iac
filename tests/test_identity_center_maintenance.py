@@ -109,7 +109,7 @@ class MaintenanceTests(unittest.TestCase):
                     m.maintenance_plan(self.env | overrides, "unused")
                 owner.assert_not_called()
 
-    def test_no_maintenance_apply_command(self):
+    def test_maintenance_apply_requires_review_arguments(self):
         with patch.object(
             sys, "argv", ["maintenance", "apply", m.bootstrap.COMPONENT, "--owner-dir", "unused"]
         ):
@@ -148,7 +148,6 @@ class MaintenanceTests(unittest.TestCase):
             source = Path(m.__file__).read_text()
             self.assertNotIn('"init"', source)
             self.assertNotIn('"import"', source)
-            self.assertNotIn('"apply"', source)
             self.assertIn("cwd=work", source)
 
     def test_live_mismatch_and_managed_attachments_stop_before_plan(self):

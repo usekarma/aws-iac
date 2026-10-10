@@ -217,9 +217,10 @@ role/policy modification or state migration is authorized by merge review.
 ## Existing-owner maintenance proposal
 
 The single missing config-path GetParameter resource grant is prepared as a
-separate reviewed maintenance declaration and HUMAN-only plan interface. It uses
-the retained bootstrap state in place and never replays create-only bootstrap,
-initializes a second backend or applies an update. See
+separate reviewed maintenance declaration and HUMAN-only plan/seal/saved-plan
+apply interface. It retains the bootstrap state owner in place, never replays
+create-only bootstrap or initializes another backend, and requires separate
+mutation approval plus the independently recorded maintenance manifest digest. See
 [maintenance scope and human command](../../specs/iac-plan-config-read-maintenance.md).
 The original bootstrap policy/guards remain pinned. Normal agents retain their
 restricted planning role; the grant is not deployed until a separately reviewed
