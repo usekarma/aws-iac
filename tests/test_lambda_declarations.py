@@ -6,12 +6,12 @@ import unittest
 import hcl2
 
 from archive.core2.scripts.check_lambda_declarations import (
-    DRAFT_SCHEMA,
     ROOT,
-    SCHEMA,
     validate_config,
     validate_declaration,
 )
+
+from scripts.check_lambda_declarations import validate_config as validate_simulator_config
 
 
 def declaration():
@@ -120,12 +120,15 @@ class LambdaDeclarationTests(unittest.TestCase):
 
     def test_merged_config_schema_and_draft_are_compatible(self):
         checkout = (ROOT / os.environ.get("AWS_CONFIG_DIR", "aws-config")).resolve()
-        schema = json.loads(
-            (checkout / "archive/core2/schemas/iot-digital-twin.schema.json").read_text()
+        schema = json.loads((checkout / "schemas/iot-digital-twin.schema.json").read_text())
+        canonical_schema = json.loads((ROOT / "contracts/iot-digital-twin.schema.json").read_text())
+        self.assertEqual(schema, canonical_schema)
+        config = json.loads(
+            (checkout / "iac/dev/iot-digital-twin/atom-lite-001/config.json").read_text()
         )
-        self.assertEqual(schema["properties"]["ingest_function"]["oneOf"], [SCHEMA, DRAFT_SCHEMA])
-        config = json.loads((checkout / "archive/core2/core2-aws-001/config.json").read_text())
-        validate_config(config, "iot-digital-twin")
+        validate_simulator_config(config, "iot-digital-twin")
+        with self.assertRaisesRegex(ValueError, "Unresolved simulator bindings"):
+            validate_simulator_config(config, "iot-digital-twin", require_resolved=True)
 
     def test_iot_trust_and_resource_address_moves_are_preserved(self):
         text = (ROOT / "archive/core2/terraform/main.tf").read_text()
