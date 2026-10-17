@@ -50,6 +50,24 @@ def validate_config(value: dict, component: str, require_resolved: bool = False)
         schema = json.loads((ROOT / "contracts/iot-digital-twin.schema.json").read_text())
         if list(Draft202012Validator(schema).iter_errors(value)):
             raise ValueError("Invalid simulator configuration")
+        if value.get("mode") == "operational-telemetry":
+            unresolved = "planning_dependencies" in value or any(
+                value[k] is None
+                for k in (
+                    "region",
+                    "expected_account",
+                    "expected_principal",
+                    "cloudformation_role_arn",
+                )
+            )
+            if require_resolved and unresolved:
+                raise ValueError("Unresolved operational bindings")
+            if (
+                not unresolved
+                and value["cloudformation_role_arn"].split(":")[4] != value["expected_account"]
+            ):
+                raise ValueError("CloudFormation role account mismatch")
+            return
         if require_resolved and (
             "planning_dependencies" in value
             or any(
@@ -96,7 +114,9 @@ def main() -> None:
             raise ValueError("Expected explicit iac/environment/component/nickname/config.json")
         value = json.loads(source.read_text())
         validate_config(value, relative.parts[2], require_resolved=args.require_resolved)
-        blocked |= relative.parts[2] == "iot-digital-twin" and value["artifact"] is None
+        blocked |= relative.parts[2] == "iot-digital-twin" and (
+            "planning_dependencies" in value or value.get("artifact") is None
+        )
     if blocked:
         print(
             "Lambda declaration structurally compatible; planning BLOCKED by unresolved artifact/principal dependencies."

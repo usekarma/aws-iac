@@ -94,3 +94,31 @@ Teardown: stop local producer/disable owned routing, retain/export required evid
 history; remove owned dashboard/workspace, assets/model/rule/role/logs and new producer
 identity only under a reviewed destroy plan. Preserve all shared state/artifacts/auth
 and existing ATOM credentials. Review data deletion, licensing timing and remaining costs.
+
+## Implemented M1 wiring (review only)
+
+The canonical component selects disjoint operational versus durable modes; durable
+resource declarations/policies moved unchanged into an internal module. Explicit
+moved mappings preserve addresses if an existing deployment is discovered. No state
+move was executed. The existing mode's mock assertions still run. Operational mode
+creates no reset Lambda/DynamoDB resources. It exports runtime metadata through SSM.
+
+Provider 6.69.1 lacks native SiteWise resources/action. One Terraform-owned CloudFormation
+stack owns model, asset/property alias and IoT rule; Terraform separately owns the
+producer Thing/unattached publish policy, routing role/policy and 7-day error log group.
+No certificates/private keys, permissions attachments, Grafana or storage-tier changes.
+Alias ingestion authorizes time-series resources, so its scoped time-series/* ARN is
+fenced by StringEquals iotsitewise:propertyAlias; never replace it with Resource '*'.
+See AWS SiteWise identity-based authorization documentation. IoT role trust is restricted
+to account and exact rule ARN. Producer MQTT rights are exact client and topic only.
+
+Before any plan/apply, confirm resource ownership and resolve the explicit CloudFormation
+execution role ARN. That pre-existing role needs reviewed stack execution rights for
+SiteWise create/describe/update/delete model/asset and tagging, IoT create/replace/delete
+rule and scoped iam:PassRole for the routing role. Operator needs scoped CloudFormation
+stack lifecycle/describe and iam:PassRole for that exact execution role, alongside the
+existing Terraform provisioning permissions. This PR does not grant those permissions.
+A CloudFormation template encoded in Terraform is tested locally, not proof the cloud
+service has accepted it; validate the concrete template and review the saved plan before
+approved apply. Teardown includes the stack-owned resources as well as Terraform-owned
+role/log/producer objects, with history/evidence retention reviewed before deletion.
