@@ -7,7 +7,7 @@ mock_provider "aws" {
         expected_principal = "synthetic-test-principal"
         artifact = {
           s3_bucket         = "synthetic-artifact-bucket"
-          s3_key            = "iot-interview-demo.zip"
+          s3_key            = "iot-digital-twin-simulator.zip"
           s3_object_version = "synthetic-version"
           source_code_hash  = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         }
@@ -17,17 +17,21 @@ mock_provider "aws" {
   mock_data "aws_caller_identity" { defaults = { account_id = "000000000000" } }
   mock_data "aws_partition" { defaults = { partition = "aws" } }
   mock_resource "aws_lambda_function" { defaults = { arn = "arn:aws:lambda:us-east-1:000000000000:function:synthetic-test" } }
-  mock_resource "aws_iot_topic_rule" { defaults = { arn = "arn:aws:iot:us-east-1:000000000000:rule/iot_interview_demo_reset" } }
+  mock_resource "aws_iot_topic_rule" { defaults = { arn = "arn:aws:iot:us-east-1:000000000000:rule/iot_digital_twin_simulator_reset" } }
   mock_resource "aws_iam_role" { defaults = { arn = "arn:aws:iam::000000000000:role/synthetic-test" } }
-  mock_resource "aws_dynamodb_table" { defaults = { arn = "arn:aws:dynamodb:us-east-1:000000000000:table/iot-interview-demo-state" } }
+  mock_resource "aws_dynamodb_table" { defaults = { arn = "arn:aws:dynamodb:us-east-1:000000000000:table/iot-digital-twin-simulator-state" } }
 }
 run "scoped_runtime" {
   # Mock-provider evaluation only: no AWS API or infrastructure operation.
   command = apply
   variables {
     region         = "us-east-1"
-    component_name = "iot-interview-demo"
+    component_name = "iot-digital-twin-simulator"
     nickname       = "synthetic-test"
+  }
+  assert {
+    condition = aws_dynamodb_table.state.tags.Project == "iot-digital-twin" && aws_dynamodb_table.state.tags.Experiment == "atom-lite-simulator"
+    error_message = "Canonical project and experiment tags must remain distinct."
   }
   assert {
     condition     = aws_lambda_function.runtime["runner"].reserved_concurrent_executions == 1 && aws_lambda_function.runtime["runner"].timeout == 210

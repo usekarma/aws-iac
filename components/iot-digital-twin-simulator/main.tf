@@ -1,34 +1,3 @@
-terraform {
-  backend "s3" {}
-  required_providers {
-    aws = { source = "hashicorp/aws", version = "= 6.69.1" }
-  }
-}
-variable "region" { type = string }
-variable "component_name" { type = string }
-variable "nickname" { type = string }
-variable "iac_prefix" {
-  type    = string
-  default = "/iac"
-}
-provider "aws" { region = var.region }
-data "aws_caller_identity" "current" {}
-data "aws_partition" "current" {}
-data "aws_ssm_parameter" "config" {
-  name = "${var.iac_prefix}/${var.component_name}/${var.nickname}/config"
-}
-locals {
-  config        = nonsensitive(jsondecode(data.aws_ssm_parameter.config.value))
-  artifact      = local.config.artifact
-  table_name    = "iot-interview-demo-state"
-  request_topic = "devices/atom-lite-001/demo/reset/request"
-  ack_topic     = "devices/atom-lite-001/demo/reset/ack"
-  functions = {
-    runner = { name = "iot-interview-demo-runner", handler = "app.runner_handler", timeout = 210 }
-    reset  = { name = "iot-interview-demo-reset", handler = "app.reset_handler", timeout = 10 }
-  }
-  tags = { Project = "iot-interview-demo", Environment = "sandbox" }
-}
 resource "aws_dynamodb_table" "state" {
   name         = local.table_name
   billing_mode = "PAY_PER_REQUEST"
@@ -105,7 +74,7 @@ resource "aws_lambda_function" "runtime" {
   depends_on = [aws_cloudwatch_log_group.runtime, aws_iam_role_policy.runtime]
 }
 resource "aws_iot_topic_rule" "reset" {
-  name        = "iot_interview_demo_reset"
+  name        = "iot_digital_twin_simulator_reset"
   enabled     = true
   sql_version = "2016-03-23"
   sql         = "SELECT session_id, command_id, expected_epoch, principal() AS principal, topic() AS topic FROM '${local.request_topic}'"

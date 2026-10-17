@@ -1,4 +1,4 @@
-# Executable interview runtime wiring — review only
+# iot-digital-twin-simulator wiring — review only
 
 Companion to aws-lambda's durable demo runtime, not the Core2 component. Reads explicit
 SSM config fields: artifact (versioned S3 ZIP metadata), model_commit, active_session,
@@ -27,3 +27,12 @@ distro shellcheck 0.9.0. Repository suite ran 154 tests (one pre-existing skip).
 Initial checks failed on missing shellcheck/config checkout and unknown/invalid mock
 ARN values; those environment/fixture issues were corrected without weakening gates.
 No live plan, AWS identity check, apply, permission change or resource mutation occurred.
+
+Naming revision: table, functions, roles, logs and rule use the simulator component
+name. Tags are Project=iot-digital-twin, Experiment=atom-lite-simulator and
+Environment=sandbox. Existing Core2 names, topics, IAM restrictions and runtime
+contracts are preserved. header.tf now holds declarations required by aws-config
+validation; resource addresses are unchanged. Rechecked the complete repository
+gates (154 tests, one existing skip), init/validate and the mock-provider test,
+including tag assertions, using /tmp/aws-simulator-config-checkout as AWS_CONFIG_DIR.
+These proposed names have not been deployed or checked against live AWS inventory.

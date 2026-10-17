@@ -75,5 +75,5 @@ jobs:
           AWS_EC2_METADATA_DISABLED: 'true'
           TF_IN_AUTOMATION: 'true'
         run: |
-          terraform -chdir=components/iot-interview-demo init -backend=false -input=false
-          terraform -chdir=components/iot-interview-demo test -no-color
+          terraform -chdir=components/iot-digital-twin-simulator init -backend=false -input=false
+          terraform -chdir=components/iot-digital-twin-simulator test -no-color
