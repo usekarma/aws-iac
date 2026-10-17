@@ -68,3 +68,12 @@ jobs:
           AWS_EC2_METADATA_DISABLED: 'true'
           TF_IN_AUTOMATION: 'true'
         run: ./scripts/verify.sh --terraform-changed
+
+      - name: Test interview runtime wiring with mocked AWS
+        env:
+          AGENT_MODE: '1'
+          AWS_EC2_METADATA_DISABLED: 'true'
+          TF_IN_AUTOMATION: 'true'
+        run: |
+          terraform -chdir=components/iot-interview-demo init -backend=false -input=false
+          terraform -chdir=components/iot-interview-demo test -no-color
