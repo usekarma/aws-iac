@@ -1,3 +1,4 @@
+mock_provider "awscc" {}
 mock_provider "aws" {
   mock_data "aws_ssm_parameter" {
     defaults = {

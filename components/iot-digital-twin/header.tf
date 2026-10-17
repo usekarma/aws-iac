@@ -1,7 +1,8 @@
 terraform {
   backend "s3" {}
   required_providers {
-    aws = { source = "hashicorp/aws", version = "= 6.69.1" }
+    aws   = { source = "hashicorp/aws", version = "= 6.69.1" }
+    awscc = { source = "hashicorp/awscc", version = "= 1.106.0" }
   }
 }
 variable "region" { type = string }
@@ -20,4 +21,10 @@ data "aws_ssm_parameter" "config" {
 locals {
   config = nonsensitive(jsondecode(data.aws_ssm_parameter.config.value))
   mode   = try(local.config.mode, "durable-simulator")
+}
+
+provider "awscc" {
+  region = var.region
+  # Cloud Control service role, NOT an assume_role for Terraform's caller.
+  role_arn = try(local.config.cloudformation_role_arn, null)
 }
