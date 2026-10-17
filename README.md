@@ -1,3 +1,5 @@
+> Active IoT Digital Twin deployment: ATOM Lite simulator only. Core2 is retired; preserved source/contracts are in `archive/core2/`. Canonical component/configuration is `iot-digital-twin/atom-lite-001`. Archival is not teardown or state migration; exact live ownership must be reconciled before deployment.
+
 # AWS infrastructure as code
 
 Reusable Terraform components orchestrated by Terragrunt, with deployment inputs
