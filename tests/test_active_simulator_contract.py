@@ -37,3 +37,26 @@ class ActiveSimulatorContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_config(retired, "iot-digital-twin")
         self.assertFalse((ROOT / "components/iot-digital-twin-simulator").exists())
+
+    def test_operational_draft_and_strict_account_binding(self):
+        checkout = (ROOT / os.environ.get("AWS_CONFIG_DIR", "aws-config")).resolve()
+        value = json.loads(
+            (checkout / "iac/dev/iot-digital-twin/operational-demo/config.json").read_text()
+        )
+        validate_config(value, "iot-digital-twin")
+        with self.assertRaises(ValueError):
+            validate_config(value, "iot-digital-twin", require_resolved=True)
+        value.pop("planning_dependencies")
+        value.update(
+            region="us-east-1",
+            expected_account="000000000000",
+            expected_principal="a" * 64,
+            cloudformation_role_arn="arn:aws:iam::000000000000:role/synthetic",
+        )
+        validate_config(value, "iot-digital-twin", require_resolved=True)
+        with self.assertRaises(ValueError):
+            validate_config(
+                value | {"expected_account": "111111111111"},
+                "iot-digital-twin",
+                require_resolved=True,
+            )
