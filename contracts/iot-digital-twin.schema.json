@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project",
+    "experiment",
+    "model_commit",
+    "active_session",
+    "expected_principal",
+    "region",
+    "artifact",
+    "tags"
+  ],
+  "properties": {
+    "project": {
+      "const": "iot-digital-twin"
+    },
+    "experiment": {
+      "const": "atom-lite-simulator"
+    },
+    "model_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "active_session": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      ]
+    },
+    "expected_principal": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      ]
+    },
+    "region": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]+$"
+        }
+      ]
+    },
+    "artifact": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "s3_bucket",
+            "s3_key",
+            "s3_object_version",
+            "source_code_hash"
+          ],
+          "properties": {
+            "s3_bucket": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+            },
+            "s3_key": {
+              "type": "string",
+              "pattern": "(^|/)iot-digital-twin-simulator\\.zip$"
+            },
+            "s3_object_version": {
+              "type": "string",
+              "minLength": 1,
+              "not": {
+                "enum": [
+                  "null",
+                  "latest"
+                ]
+              }
+            },
+            "source_code_hash": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9+/]{43}=$"
+            }
+          }
+        }
+      ]
+    },
+    "planning_dependencies": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "artifact_publication",
+          "trusted_principal",
+          "active_session",
+          "sandbox_binding"
+        ]
+      }
+    },
+    "tags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Project",
+        "Experiment",
+        "Environment"
+      ],
+      "properties": {
+        "Project": {
+          "const": "iot-digital-twin"
+        },
+        "Experiment": {
+          "const": "atom-lite-simulator"
+        },
+        "Environment": {
+          "const": "sandbox"
+        }
+      }
+    }
+  }
+}
