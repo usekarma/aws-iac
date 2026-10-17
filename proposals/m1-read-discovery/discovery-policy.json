@@ -1,0 +1,161 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RegionalMetadata",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeType",
+        "cloudformation:GetResource",
+        "cloudformation:ListResources",
+        "iotsitewise:ListAssetModels",
+        "iotsitewise:DescribeStorageConfiguration",
+        "iotsitewise:DescribeDefaultEncryptionConfiguration",
+        "iot:DescribeEndpoint",
+        "iot:ListThings",
+        "logs:DescribeLogGroups",
+        "servicequotas:ListServiceQuotas"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "623155450153",
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "LegacyM1Stack",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStacks",
+        "cloudformation:ListStackResources",
+        "cloudformation:GetTemplate"
+      ],
+      "Resource": "arn:aws:cloudformation:us-east-1:623155450153:stack/iot-digital-twin-operational-m1/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "623155450153",
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "M1Thing",
+      "Effect": "Allow",
+      "Action": [
+        "iot:DescribeThing",
+        "iot:ListThingPrincipals"
+      ],
+      "Resource": "arn:aws:iot:us-east-1:623155450153:thing/adage-operational-m1",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "623155450153",
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "M1Policy",
+      "Effect": "Allow",
+      "Action": [
+        "iot:GetPolicy",
+        "iot:GetPolicyVersion"
+      ],
+      "Resource": "arn:aws:iot:us-east-1:623155450153:policy/iot-digital-twin-operational-m1-publish",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "623155450153",
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "M1Rule",
+      "Effect": "Allow",
+      "Action": [
+        "iot:GetTopicRule"
+      ],
+      "Resource": "arn:aws:iot:us-east-1:623155450153:rule/iot_digital_twin_operational_m1",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "623155450153",
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "RoutingRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies"
+      ],
+      "Resource": "arn:aws:iam::623155450153:role/iot-digital-twin-operational-m1-routing",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "623155450153"
+        }
+      }
+    },
+    {
+      "Sid": "M1Configuration",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter"
+      ],
+      "Resource": [
+        "arn:aws:ssm:us-east-1:623155450153:parameter/iac/iot-digital-twin/operational-demo/config",
+        "arn:aws:ssm:us-east-1:623155450153:parameter/iac/iot-digital-twin/operational-demo/runtime",
+        "arn:aws:ssm:us-east-1:623155450153:parameter/iac/iot-digital-twin/atom-lite-001/config",
+        "arn:aws:ssm:us-east-1:623155450153:parameter/iac/iot-digital-twin/atom-lite-001/runtime"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "623155450153",
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "StateVersionOwnership",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucketVersions"
+      ],
+      "Resource": "arn:aws:s3:::623155450153-tf-state",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "623155450153",
+          "aws:RequestedRegion": "us-east-1",
+          "s3:ResourceAccount": "623155450153",
+          "s3:prefix": [
+            "iot-digital-twin/operational-demo/terraform.tfstate",
+            "iot-digital-twin/atom-lite-001/terraform.tfstate"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ExactStateReads",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": [
+        "arn:aws:s3:::623155450153-tf-state/iot-digital-twin/operational-demo/terraform.tfstate",
+        "arn:aws:s3:::623155450153-tf-state/iot-digital-twin/atom-lite-001/terraform.tfstate"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "623155450153",
+          "aws:RequestedRegion": "us-east-1",
+          "s3:ResourceAccount": "623155450153"
+        }
+      }
+    }
+  ]
+}

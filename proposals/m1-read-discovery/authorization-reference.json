@@ -1,0 +1,569 @@
+{
+  "cloudformation": {
+    "source": "https://servicereference.us-east-1.amazonaws.com/v1/cloudformation/cloudformation.json",
+    "version": "v1.4",
+    "actions": {
+      "DescribeStacks": {
+        "Name": "DescribeStacks",
+        "Annotations": {
+          "Properties": {
+            "IsList": true,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "stack"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "DescribeType": {
+        "Name": "DescribeType",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "GetResource": {
+        "Name": "GetResource",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": false,
+          "IAM Action Last Accessed": false
+        }
+      },
+      "GetTemplate": {
+        "Name": "GetTemplate",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "stack"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "ListResources": {
+        "Name": "ListResources",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": false,
+          "IAM Action Last Accessed": false
+        }
+      },
+      "ListStackResources": {
+        "Name": "ListStackResources",
+        "Annotations": {
+          "Properties": {
+            "IsList": true,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "stack"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      }
+    }
+  },
+  "iotsitewise": {
+    "source": "https://servicereference.us-east-1.amazonaws.com/v1/iotsitewise/iotsitewise.json",
+    "version": "v1.4",
+    "actions": {
+      "DescribeDefaultEncryptionConfiguration": {
+        "Name": "DescribeDefaultEncryptionConfiguration",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "DescribeStorageConfiguration": {
+        "Name": "DescribeStorageConfiguration",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "ListAssetModels": {
+        "Name": "ListAssetModels",
+        "Annotations": {
+          "Properties": {
+            "IsList": true,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      }
+    }
+  },
+  "iot": {
+    "source": "https://servicereference.us-east-1.amazonaws.com/v1/iot/iot.json",
+    "version": "v1.4",
+    "actions": {
+      "DescribeEndpoint": {
+        "Name": "DescribeEndpoint",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "DescribeThing": {
+        "Name": "DescribeThing",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "thing"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "GetPolicy": {
+        "Name": "GetPolicy",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "policy"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "GetPolicyVersion": {
+        "Name": "GetPolicyVersion",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "policy"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "GetTopicRule": {
+        "Name": "GetTopicRule",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "rule"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "ListThingPrincipals": {
+        "Name": "ListThingPrincipals",
+        "Annotations": {
+          "Properties": {
+            "IsList": true,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "thing"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "ListThings": {
+        "Name": "ListThings",
+        "Annotations": {
+          "Properties": {
+            "IsList": true,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      }
+    }
+  },
+  "iam": {
+    "source": "https://servicereference.us-east-1.amazonaws.com/v1/iam/iam.json",
+    "version": "v1.4",
+    "actions": {
+      "GetRole": {
+        "Name": "GetRole",
+        "ActionConditionKeys": [
+          "iam:PermissionsBoundary",
+          "iam:RoleTemplateARN"
+        ],
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "role"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "GetRolePolicy": {
+        "Name": "GetRolePolicy",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "role"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "ListAttachedRolePolicies": {
+        "Name": "ListAttachedRolePolicies",
+        "Annotations": {
+          "Properties": {
+            "IsList": true,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "role"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      },
+      "ListRolePolicies": {
+        "Name": "ListRolePolicies",
+        "Annotations": {
+          "Properties": {
+            "IsList": true,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "role"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      }
+    }
+  },
+  "ssm": {
+    "source": "https://servicereference.us-east-1.amazonaws.com/v1/ssm/ssm.json",
+    "version": "v1.4",
+    "actions": {
+      "GetParameter": {
+        "Name": "GetParameter",
+        "ActionConditionKeys": [
+          "aws:ResourceTag/${TagKey}"
+        ],
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "parameter"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      }
+    }
+  },
+  "s3": {
+    "source": "https://servicereference.us-east-1.amazonaws.com/v1/s3/s3.json",
+    "version": "v1.4",
+    "actions": {
+      "GetObject": {
+        "Name": "GetObject",
+        "ActionConditionKeys": [
+          "s3:AccessGrantsInstanceArn",
+          "s3:ExistingObjectTag/<key>",
+          "s3:ResourceAccount",
+          "s3:TlsVersion",
+          "s3:authType",
+          "s3:signatureAge",
+          "s3:signatureversion",
+          "s3:x-amz-content-sha256"
+        ],
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "accesspointobject"
+          },
+          {
+            "Name": "object"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": false,
+          "IAM Action Last Accessed": false
+        }
+      },
+      "GetObjectVersion": {
+        "Name": "GetObjectVersion",
+        "ActionConditionKeys": [
+          "s3:AccessGrantsInstanceArn",
+          "s3:ExistingObjectTag/<key>",
+          "s3:ResourceAccount",
+          "s3:TlsVersion",
+          "s3:authType",
+          "s3:signatureAge",
+          "s3:signatureversion",
+          "s3:versionid",
+          "s3:x-amz-content-sha256"
+        ],
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "accesspointobject"
+          },
+          {
+            "Name": "object"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": false,
+          "IAM Action Last Accessed": false
+        }
+      },
+      "ListBucketVersions": {
+        "Name": "ListBucketVersions",
+        "ActionConditionKeys": [
+          "s3:AccessGrantsInstanceArn",
+          "s3:ResourceAccount",
+          "s3:TlsVersion",
+          "s3:authType",
+          "s3:delimiter",
+          "s3:max-keys",
+          "s3:prefix",
+          "s3:signatureAge",
+          "s3:signatureversion",
+          "s3:x-amz-content-sha256"
+        ],
+        "Annotations": {
+          "Properties": {
+            "IsList": true,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "Resources": [
+          {
+            "Name": "accesspoint"
+          },
+          {
+            "Name": "bucket"
+          }
+        ],
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": false,
+          "IAM Action Last Accessed": false
+        }
+      }
+    }
+  },
+  "logs": {
+    "source": "https://servicereference.us-east-1.amazonaws.com/v1/logs/logs.json",
+    "version": "v1.4",
+    "actions": {
+      "DescribeLogGroups": {
+        "Name": "DescribeLogGroups",
+        "Annotations": {
+          "Properties": {
+            "IsList": true,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      }
+    }
+  },
+  "servicequotas": {
+    "source": "https://servicereference.us-east-1.amazonaws.com/v1/servicequotas/servicequotas.json",
+    "version": "v1.4",
+    "actions": {
+      "ListServiceQuotas": {
+        "Name": "ListServiceQuotas",
+        "Annotations": {
+          "Properties": {
+            "IsList": false,
+            "IsPermissionManagement": false,
+            "IsTaggingOnly": false,
+            "IsWrite": false
+          }
+        },
+        "SupportedBy": {
+          "IAM Access Analyzer Policy Generation": true,
+          "IAM Action Last Accessed": true
+        }
+      }
+    }
+  }
+}
