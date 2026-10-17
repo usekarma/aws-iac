@@ -78,3 +78,13 @@ jobs:
         run: |
           terraform -chdir=components/iot-digital-twin init -backend=false -input=false
           terraform -chdir=components/iot-digital-twin test -no-color
+
+      - name: Test AWSCC target rejection with mocked AWS
+        env:
+          AGENT_MODE: '1'
+          AWS_EC2_METADATA_DISABLED: 'true'
+          TF_IN_AUTOMATION: 'true'
+        run: |
+          cp components/iot-digital-twin/.terraform.lock.hcl modules/iot-operational/.terraform.lock.hcl
+          terraform -chdir=modules/iot-operational init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=modules/iot-operational test -no-color
