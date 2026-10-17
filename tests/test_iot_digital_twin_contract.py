@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG_RELATIVE_PATH = Path("iac/dev/iot-digital-twin/core2-aws-001/config.json")
+CONFIG_RELATIVE_PATH = Path("archive/core2/core2-aws-001/config.json")
 
 
 def contract_path():

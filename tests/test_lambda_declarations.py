@@ -5,7 +5,7 @@ import unittest
 
 import hcl2
 
-from scripts.check_lambda_declarations import (
+from archive.core2.scripts.check_lambda_declarations import (
     DRAFT_SCHEMA,
     ROOT,
     SCHEMA,
@@ -120,15 +120,15 @@ class LambdaDeclarationTests(unittest.TestCase):
 
     def test_merged_config_schema_and_draft_are_compatible(self):
         checkout = (ROOT / os.environ.get("AWS_CONFIG_DIR", "aws-config")).resolve()
-        schema = json.loads((checkout / "schemas/iot-digital-twin.schema.json").read_text())
-        self.assertEqual(schema["properties"]["ingest_function"]["oneOf"], [SCHEMA, DRAFT_SCHEMA])
-        config = json.loads(
-            (checkout / "iac/dev/iot-digital-twin/core2-aws-001/config.json").read_text()
+        schema = json.loads(
+            (checkout / "archive/core2/schemas/iot-digital-twin.schema.json").read_text()
         )
+        self.assertEqual(schema["properties"]["ingest_function"]["oneOf"], [SCHEMA, DRAFT_SCHEMA])
+        config = json.loads((checkout / "archive/core2/core2-aws-001/config.json").read_text())
         validate_config(config, "iot-digital-twin")
 
     def test_iot_trust_and_resource_address_moves_are_preserved(self):
-        text = (ROOT / "components/iot-digital-twin/main.tf").read_text()
+        text = (ROOT / "archive/core2/terraform/main.tf").read_text()
         parsed = hcl2.loads(text)
         resources = {kind: blocks for group in parsed["resource"] for kind, blocks in group.items()}
         rule = resources["aws_iot_topic_rule"]["telemetry"]

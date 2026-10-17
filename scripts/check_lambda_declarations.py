@@ -47,32 +47,26 @@ def validate_config(value: dict, component: str, require_resolved: bool = False)
         for declaration in functions.values():
             validate_declaration(declaration)
     elif component == "iot-digital-twin":
-        declaration = value.get("ingest_function")
-        draft = isinstance(declaration, dict) and declaration.get("artifact", "missing") is None
-        if draft and not require_resolved:
-            if list(Draft202012Validator(DRAFT_SCHEMA).iter_errors(declaration)):
-                raise ValueError("Invalid explicitly blocked IoT declaration")
-            if (
-                not declaration.get("environment", {}).get("EXPECTED_PRINCIPAL", "").strip()
-                and "trusted_principal" not in declaration["planning_dependencies"]
-            ):
-                raise ValueError("Missing trusted-principal planning dependency")
-        else:
-            validate_declaration(declaration)
-        if (
-            declaration["runtime"] != "python3.12"
-            or declaration["handler"] != "app.lambda_handler"
-            or (
-                not draft
-                and (
-                    Path(declaration["artifact"]["s3_key"]).name != "iot-digital-twin-ingest.zip"
-                    or not declaration.get("environment", {}).get("EXPECTED_PRINCIPAL", "").strip()
-                )
+        schema = json.loads((ROOT / "contracts/iot-digital-twin.schema.json").read_text())
+        if list(Draft202012Validator(schema).iter_errors(value)):
+            raise ValueError("Invalid simulator configuration")
+        if require_resolved and (
+            "planning_dependencies" in value
+            or any(
+                value[key] is None
+                for key in ("artifact", "region", "active_session", "expected_principal")
             )
-            or value.get("mqtt_topic") != f"devices/{value.get('device_id')}/telemetry"
-            or declaration["log_retention_days"] != value.get("cloudwatch_log_retention_days")
         ):
-            raise ValueError("IoT runtime, identity/topic or retention contract mismatch")
+            raise ValueError("Unresolved simulator bindings")
+        if value["artifact"] is not None:
+            import base64
+
+            digest = value["artifact"]["source_code_hash"]
+            decoded = base64.b64decode(digest, validate=True)
+            if len(decoded) != 32 or base64.b64encode(decoded).decode() != digest:
+                raise ValueError("Invalid simulator digest")
+            if not value["artifact"]["s3_object_version"].strip():
+                raise ValueError("Missing immutable artifact version")
     else:
         raise ValueError("Unsupported Lambda declaration consumer")
 
@@ -102,9 +96,7 @@ def main() -> None:
             raise ValueError("Expected explicit iac/environment/component/nickname/config.json")
         value = json.loads(source.read_text())
         validate_config(value, relative.parts[2], require_resolved=args.require_resolved)
-        blocked |= (
-            relative.parts[2] == "iot-digital-twin" and value["ingest_function"]["artifact"] is None
-        )
+        blocked |= relative.parts[2] == "iot-digital-twin" and value["artifact"] is None
     if blocked:
         print(
             "Lambda declaration structurally compatible; planning BLOCKED by unresolved artifact/principal dependencies."

@@ -1,44 +1,51 @@
-# IoT Digital Twin
+# IoT Digital Twin — active ATOM Lite simulator
 
-![IoT digital twin telemetry architecture](../../docs/diagrams/iot-digital-twin-telemetry-architecture.svg)
+Canonical component: iot-digital-twin. Configuration nickname: atom-lite-001.
+SSM: /iac/iot-digital-twin/atom-lite-001/config. State key:
+iot-digital-twin/atom-lite-001/terraform.tfstate. Core2 source is archived under
+archive/core2 and is not an active deployment requirement.
 
-[Editable diagrams.net source](../../docs/diagrams/iot-digital-twin-telemetry-architecture.drawio)
+# iot-digital-twin-simulator wiring — review only
 
-This component consumes the existing aws-config contract exposed as:
+Companion to aws-lambda's durable demo runtime, not the Core2 component. Reads explicit
+SSM config fields: artifact (versioned S3 ZIP metadata), model_commit, active_session,
+expected_principal. No value-bearing config, account/principal or artifact is invented.
+aws-config must adopt/validate this new component before any publication or saved plan.
 
-- `/iac/<component>/<nickname>/config`
-- `/iac/<component>/<nickname>/runtime`
+Creates a PK/SK sandbox DynamoDB table, two Lambdas/roles/log groups, exact reset IoT
+rule and scoped invocation permission. Runner supports supervised operation=start and
+180-second execution; reset handler publishes committed receipts on the exact ACK topic.
+IAM allows item operations only on the table/current session partition; IoT Publish
+belongs only to reset. No certificate, device policy, frontend/public endpoint, SSM write,
+artifact upload or AWS operation is performed by adding this source.
 
-It is intentionally minimal and review-only: it reads the config from SSM, builds the IoT/Lambda/DynamoDB skeleton for the digital-twin prototype, and exposes the runtime metadata without generating any device certificates or live AWS mutations during local validation.
+The device's subscription/publish policy amendment remains separately reviewed work.
+Account/region binding, artifact publication, sdk adapter integration, operator invoke
+permissions, alerts and cost evidence must be resolved before a live saved plan.
+Do not apply. Preserve receipts for separately approved teardown. Full repository gates
+and terraform validation must pass before review approval. No production readiness claim.
 
-## Compatibility
+Observed local verification: Terraform 1.15.2 / signed AWS provider 6.69.1;
+backend-disabled init/validate passed. One mock-provider test passed, asserting
+runner bounds, reset routing, separated publish privilege and session-scoped storage.
+Full scripts/verify.sh --terraform iot-interview-demo passed using explicit
+AWS_CONFIG_DIR=/home/ted/dev/aws-config, existing locked Python tooling and temporary
+distro shellcheck 0.9.0. Repository suite ran 154 tests (one pre-existing skip).
+Initial checks failed on missing shellcheck/config checkout and unknown/invalid mock
+ARN values; those environment/fixture issues were corrected without weakening gates.
+No live plan, AWS identity check, apply, permission change or resource mutation occurred.
 
-The repository currently supports aws-config contract version 1 only as defined in `contracts/aws-config-compatibility.json`. No version bump was required for this component because the config already matches the established `/iac/<component>/<nickname>/config` model and the keys used by the sandbox follow the existing SSM-driven pattern.
+Naming revision: table, functions, roles, logs and rule use the simulator component
+name. Tags are Project=iot-digital-twin, Experiment=atom-lite-simulator and
+Environment=sandbox. Existing Core2 names, topics, IAM restrictions and runtime
+contracts are preserved. header.tf now holds declarations required by aws-config
+validation; resource addresses are unchanged. Rechecked the complete repository
+gates (154 tests, one existing skip), init/validate and the mock-provider test,
+including tag assertions, using /tmp/aws-simulator-config-checkout as AWS_CONFIG_DIR.
+These proposed names have not been deployed or checked against live AWS inventory.
 
-## Trust model
-
-This component preserves the security semantics from the design review:
-
-- device certificates are authoritative, but certificate creation remains a separate human-controlled step,
-- `device_id` remains data-only rather than a server-side trust anchor,
-- `reject_device_authored_offline` and `connectivity_state_server_derived` are enforced server-side,
-- lambda-side replay and staleness checks are expected to be implemented at the ingestion boundary before state writes.
-
-## Scope
-
-The module intentionally does not create an AWS IoT certificate or principal attachment. Those operations require secret material and should be executed only in a reviewed, authenticated AWS sandbox workflow. This keeps the Terraform module deterministic and safe for local repo validation while still producing a meaningful IoT/Lambda/DynamoDB plan.
-
-## Teardown
-
-This repository never performs apply or destroy operations during validation. A real sandbox can be torn down later by the authorized operator after the config and runtime metadata have been reviewed and approved.
-
-## Runtime artifact integration
-
-The ingestion Lambda now uses aws-iac's shared Lambda module and requires an
-explicit `ingest_function` declaration. Runtime source remains in aws-lambda;
-no placeholder ZIP or local-path fallback exists. The runtime requires
-`python3.12`, `app.lambda_handler`, `iot-digital-twin-ingest.zip`, an exact
-expected principal, derived device identity/table and a matching telemetry topic.
-See [the declaration/handoff contract](../../docs/lambda-artifact-contract.md).
-Merged aws-config contract v1 is structurally compatible; its unresolved
-artifact and trusted principal still block planning. Certificate attachment and TwinMaker remain excluded/deferred.
+Before deployment, obtain authorized exact resource ownership evidence. Current
+read-only inventory verified account 623155450153 and targeted us-east-1: no
+current iot-digital-twin state objects, but application inventory was denied.
+Preserve the separately owned shared artifact bucket and IAM/state infrastructure.
+Do not interpret AccessDenied as absence or reuse historical state keys.
