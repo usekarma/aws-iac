@@ -1,128 +1,152 @@
-# M1 read-only discovery proposal — not approved or applied
+# Final M1 additive discovery proposal (PR #22)
 
-Target: existing `strall-dev-plan` / Identity Center `IaCPlanReadOnly`, account
-623155450153, us-east-1, dev. Baseline: private
-`iot-digital-twin/artifacts/m1-operator-readiness/awscc-readiness-report.md`,
-aws-iac main f9a5c7d245311805f8b17c76ed9d1b66ea0ec577.
-The stakeholder needs resource ownership evidence before planning the first 20
-synthetic observations. Denied reads are unknown, never evidence of absence.
+Target 623155450153, us-east-1. Operator reports one generated-role inline policy,
+no boundary, no managed policies, no enabled Organizations SCPs, and assignments
+to two accounts. These are operator attestations; the earlier reader could not
+independently inspect role/boundary/SCPs. Earlier live permission-set reads matched
+our baseline and confirmed no permission-set managed-policy attachments.
 
-`discovery-policy.json` is an **additive proposal**, not active Terraform, an
-attachment, or a complete replacement permission set. It preserves existing
-permissions and all ATOM resources. An authorized owner must review the effective
-permission set, boundaries and SCPs before approving a security change. Do not edit
-the AWSReservedSSO role directly. Maintain its existing Identity Center owner;
-re-provisioning the shared permission set needs separate human approval. Every
-statement conditions PrincipalAccount because this permission set is also assigned
-outside the target account. Regional services are restricted to us-east-1; IAM
-uses its global endpoint and exact account-qualified role ARN.
+The smallest first-stage addition is discovery-policy.json: Cloud Control type/read
+metadata, SiteWise model discovery/storage/encryption prerequisites, IoT ATS endpoint,
+exact producer Thing/principals/policy, exact rule, exact routing-role reads, four
+exact operational/ATOM config/runtime SSM reads, and exact legacy M1 stack reads.
+Removed: historical/current state object reads, state version enumeration, logs,
+quotas and unrelated Thing enumeration. Existing state/bucket/lock/config and owner
+permissions are preserved byte-for-byte in the declaration structure.
 
-## Stage 1: known names and metadata
+The combined Terraform input is
+examples/identity-center-owner.iac-plan-readonly.m1-discovery.json. It adds seven
+non-conflicting statements to the existing declaration, changing no other fields,
+assignments, tags, permissions, account restrictions or publisher configuration.
+There are no new IAM mutation, PassRole, AssumeRole, Cloud Control write, ingestion,
+certificate provisioning, MQTT or device rights. This is an Allow delta, not a
+boundary; the operator attestations must cover the actual generated role.
 
-| Evidence / observed missing read | Proposed scope |
-| --- | --- |
-| Cloud Control GetResource/ListResources; DescribeType | Account + region, Resource * (these actions do not support resource-level IAM). No role-arn or PassRole. |
-| SiteWise ListAssetModels, DescribeStorageConfiguration, DescribeDefaultEncryptionConfiguration | Account + region, Resource *; required to discover UUIDs and operational prerequisites. |
-| IoT DescribeEndpoint/ListThings | Account + region, Resource *; endpoint and Thing metadata discovery, not connections. |
-| IoT DescribeThing/ListThingPrincipals/GetPolicy/GetTopicRule | Exact producer Thing, publish policy and M1 rule. GetPolicyVersion added to inspect declared versions. |
-| IAM GetRole/ListRolePolicies/ListAttachedRolePolicies | Exact routing role; GetRolePolicy added to inspect inline restrictions. |
-| SSM GetParameter | Four exact config/runtime names for operational-demo and ATOM preservation. No path enumeration or decryption permission. |
-| Terraform S3 ListBucketVersions | Exact operational and ATOM state prefixes in the verified bucket; version history ownership. |
-| Terraform S3 GetObject/GetObjectVersion | Two exact state keys, including historical versions; added prerequisite, not a recorded denied read. State can contain secrets: private handling only. |
-| Legacy DescribeStacks/ListStackResources/GetTemplate | Only the named M1 legacy stack ARN with AWS-generated suffix. No stack deployment. |
-| Logs DescribeLogGroups; ServiceQuotas ListServiceQuotas | Account + region, Resource *: metadata prerequisites, no log event reads. These APIs cannot IAM-enforce a log prefix or CLI service-code filter. Omit if operator inventory supplies this evidence. |
+## Explicit wildcard acceptance
 
-Wildcard security review: metadata calls can disclose unrelated resource names,
-quotas, logging metadata and schema. Cloud Control cannot enforce M1 type/name
-filters in this policy; CLI filters are not authorization. Existing downstream
-permissions may make other resource properties readable through Cloud Control.
-Review the **combined** role privileges, not just this delta. If this exposure is
-unacceptable, omit Cloud Control calls and obtain an operator-supplied inventory.
-Do not add unsupported cloudformation:TypeName or identifier conditions. Scoped
-CloudFormation stack reads support ARN restrictions; DescribeType does not.
+Only APIs without resource-level IAM support use Resource *: Cloud Control
+DescribeType/GetResource/ListResources, SiteWise ListAssetModels/storage/encryption
+configuration, and IoT DescribeEndpoint. All new regional statements require
+PrincipalAccount=623155450153 and RequestedRegion=us-east-1. IAM reads use exact
+routing-role ARN and PrincipalAccount (IAM is global).
 
-## Stage 2: bind discovered IDs, do not widen to account-wide describes
+Cloud Control has no M1 type/name IAM fence for these actions. Combined downstream
+reads may expose non-M1 resource properties; command filters are not security.
+Approve this account/region-wide Cloud Control read exposure explicitly, or omit
+those three actions and obtain operator-provided ownership/schema evidence. Do not
+claim the combined role is M1-only: existing broad SSM parameter metadata, bucket
+listing and owner permission-set metadata remain as before. No new historical-state
+or unrelated resource-content reads are requested.
 
-Stage 1 intentionally does not resolve every recorded denial. Add a separately
-reviewed exact-ARN supplement only after identity/ownership is established:
+The same permission set is assigned to 835990279085. Every NEW statement has a
+623155450153 PrincipalAccount guard, so it grants nothing to the second identity.
+AWS Terraform provider updating the inline-policy resource automatically provisions
+the permission set to ALL assigned accounts. A one-resource plan is not a one-account
+operational change. Future human approval must cover both provisioning targets;
+there is no provisioning authorized now. Existing assignments must remain no-op.
+See [provider contract](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ssoadmin_permission_set_inline_policy).
 
-| Still missing / additional prerequisite | Exact binding needed |
-| --- | --- |
-| Recorded iotsitewise:ListAssets | M1 asset-model ARN (the action supports asset-model scope). A top-level list without model ID is not authorized; supply model UUID. |
-| DescribeAssetModel/ListAssetModelProperties | Same verified model ARN. Confirm measurement name/type, not only its display name. |
-| DescribeAsset/DescribeAssetProperty/ListAssetProperties/ListAssociatedAssets | Verified asset ARN; verify model link and INTEGER Severity measurement. |
-| Recorded DescribeTimeSeries | Verified asset/time-series ARN as required by alias lookup; reconcile alias `/adage/iot-digital-twin/operational-demo/asset-000/severity`. Do not invent an alias IAM condition. |
-| iot:DescribeCertificate/ListPrincipalThings | Exact dedicated producer certificate ARN; no certificate listing or provisioning. |
-| iot:ListAttachedPolicies | Resource * required by AWS; separately account/region-guarded. This discloses attachment metadata more broadly; use operator evidence if unacceptable. |
-| IAM GetRole/GetRolePolicy/ListRolePolicies/ListAttachedRolePolicies | Exact verified Cloud Control service-role ARN; it is currently unknown. Inspect trust and downstream handler permissions without assuming it. |
-| IAM GetPolicy/GetPolicyVersion | Exact discovered managed policy ARNs; no policy/* or role/* fallback. |
-| IoT DescribeThing/ListThingPrincipals/GetPolicy/GetPolicyVersion | Actual verified ATOM Thing/policy ARNs; repository nickname atom-lite-001 is not proof of an AWS Thing name. Certificate reads as above if needed. |
+## Bounded second-stage reads
 
-New SiteWise/IAM/certificate reads above are inferred prerequisites, not previously
-observed denials. Retain PrincipalAccount and RequestedRegion guards on regional
-supplements; account guard on IAM. Cloud Control model/asset read handlers may
-need additional downstream reads (e.g. composite models or tags); authorize only
-confirmed read actions on the discovered IDs after inspecting DescribeType schema
-or a precise denial. This staged policy is deliberately not deployment-ready.
+This policy deliberately does not guess SiteWise UUIDs, Cloud Control service role,
+producer certificate, or actual ATOM Thing/policy names. Obtain verified identities
+then review exact-ARN additions: DescribeAssetModel/ListAssetModelProperties and
+model-scoped ListAssets; DescribeAsset/DescribeAssetProperty/ListAssetProperties;
+DescribeTimeSeries on the verified asset/time-series scope; exact certificate
+DescribeCertificate/ListPrincipalThings; exact service-role/managed-policy reads;
+and exact ATOM attachment reads. ListAttachedPolicies requires Resource *: prefer
+operator-provided attachment evidence. No resource/* fallback. Cloud Control read
+handlers may require additional downstream reads; a denial is unknown, not absence.
+Preserve ATOM state, identity and attachments and shared resource ownership.
 
-## Approval boundaries and preservation
+## Existing-owner maintenance / non-destructive plan
 
-Not granted: Cloud Control Create/Update/Delete, Terraform lock writes, import or
-state modification, IAM mutation/PassRole/AssumeRole, SSM publication, KMS Decrypt,
-certificate/key provisioning/activation/attachment, IoT Connect/Publish/Subscribe/
-Receive, SiteWise ingestion, MQTT or device operations. Existing effective role
-permissions must also be reviewed: this delta is not a deny boundary.
-Deployment caller permissions, Cloud Control service-role trust/handler privileges,
-IoT routing alias/source fences and a dedicated MQTT producer identity are separate
-approvals. Never reuse ATOM credentials. Compare private ATOM state, Thing,
-certificate/policy attachments and shared resource owners before any future plan;
-unknown ownership blocks deployment. No state migration is authorized.
+Authoritative owner:
+/home/ted/dev/aws-iac/artifacts/identity-center-bootstrap/review-uhd86fs8,
+local state lineage adda9261-8df8-2be4-51cf-f829529878b3. Current locally inspected
+state serial is 15, seven managed resources. Do not reuse earlier serial-13 scripts,
+older single-ARN maintenance plans, or initialize a new owner/backend. Do not copy
+state into an apply-capable competing workspace or use import/state manipulation.
 
-## Non-mutating operator verification
-
-Only after an authorized owner approves and applies an exact reviewed policy:
+1. Verify existing identity-center-plan STS account 835990279085. Re-read the live
+   inline policy/attachments/assignments and obtain current operator attestations.
+   Compare CURRENT state inline policy with the baseline, state hash/serial, current
+   provider lock, source provenance and retained publisher overlay. Stop on drift.
+2. Prepare a private maintenance review in the existing owner's maintenance-reviews.
+   Retain all seven resources, including publisher Terraform source omitted from
+   the original bootstrap-only source directory. Use the same-owner publisher
+   provenance checks, adapted to CURRENT applied state, not old pinned scripts.
+   New script review_m1_discovery_plan.py is an OFFLINE semantic gate, not a complete
+   source-provenance verifier, planner, seal or apply authorization.
+3. Build maintenance.tfvars.json from the owner's bootstrap.tfvars.json, changing
+   ONLY bootstrap_config_json to the combined declaration. Preserve every other
+   variable. Keep old declaration for rollback. Operator must provide enough
+   authorized read access to refresh all seven existing resources; no admin fallback.
+4. With complete reviewed source/overlay and original owner/backend intact, the
+   planning commands are (operator preparation only; never apply):
 
 ```bash
-export AWS_PROFILE=strall-dev-plan AWS_REGION=us-east-1 AWS_PAGER=''
-aws sts get-caller-identity --query '{Account:Account,Arn:Arn}'
-# Stop unless account is 623155450153 and role is the existing IaCPlanReadOnly.
-aws cloudformation describe-type --type RESOURCE --type-name AWS::IoTSiteWise::AssetModel
-aws cloudcontrol list-resources --type-name AWS::IoTSiteWise::AssetModel
-aws cloudcontrol get-resource --type-name AWS::IoT::TopicRule --identifier iot_digital_twin_operational_m1
-aws iotsitewise list-asset-models --query 'assetModelSummaries[].{id:id,name:name}'
-aws iot describe-thing --thing-name adage-operational-m1
-aws iot list-thing-principals --thing-name adage-operational-m1
-aws iot get-policy --policy-name iot-digital-twin-operational-m1-publish
-aws iot get-topic-rule --rule-name iot_digital_twin_operational_m1
-aws iam get-role --role-name iot-digital-twin-operational-m1-routing
-aws iam list-role-policies --role-name iot-digital-twin-operational-m1-routing
-aws iam list-attached-role-policies --role-name iot-digital-twin-operational-m1-routing
-aws ssm get-parameter --name /iac/iot-digital-twin/operational-demo/config --query 'Parameter.{Name:Name,Type:Type,Version:Version}'
-aws s3api list-object-versions --bucket 623155450153-tf-state --expected-bucket-owner 623155450153 --prefix iot-digital-twin/operational-demo/terraform.tfstate
+export AGENT_MODE=1 AWS_PROFILE=identity-center-plan AWS_REGION=us-east-1
+aws sts get-caller-identity  # require owner 835990279085 and existing reader
+# OWNER=/home/ted/dev/aws-iac/artifacts/identity-center-bootstrap/review-uhd86fs8
+# REVIEW is a new private maintenance-reviews directory, never an old saved plan.
+terraform -chdir="$OWNER" plan -input=false -lock=false -no-color -var-file="$REVIEW/maintenance.tfvars.json" -out="$REVIEW/review.tfplan"
+terraform -chdir="$OWNER" show -json "$REVIEW/review.tfplan" > "$REVIEW/plan.json"
+python3 scripts/review_m1_discovery_plan.py --owner-state "$OWNER/terraform.tfstate" --plan-json "$REVIEW/plan.json"
 ```
 
-Use an explicit region on each call if not using the exported region. Keep raw
-resource properties, policy documents, SSM values and state private, untracked,
-mode 0600. No GetParameter --with-decryption. Verify config/runtime locally without
-printing their values. Paginate inventories; an empty successful response proves
-only that request's scope. AccessDenied remains unknown. Re-run the existing
-operator-inventory.sh only with verified service-role/certificate/ATOM bindings;
-its unsupported top-level ListAssets/alias requests may still be denied until the
-exact-ID supplement and model-qualified request are used. No escalation fallback.
+Do not run step 4 without step 2's publisher source: omission would plan deletions.
+Never use refresh=false, -target or ignore_changes to conceal drift. Record original
+owner files/state/lock hashes before and after and require unchanged results. Plan
+must contain exactly one known inline-policy in-place update and six no-ops, no
+moves/imports/replacements/drift, with identical before/after non-policy attributes.
+Review full combined policy, archive source/provider/previous-state provenance,
+hashes and both-account provisioning impact before a separate human approval.
 
-Expected evidence: exact identity, successful metadata calls, IDs and owners,
-state version reconciliation, trusted service role, dedicated ACTIVE producer
-certificate and attachments, unchanged ATOM baseline. This is discovery, not a
-Terraform plan or authorization to deploy. No live verification of proposed grants
-is possible before approval; offline checks do not establish effective IAM access.
+No real saved plan was produced in this task: current reader lacks the full live
+ownership/refresh evidence and the prior sealed helper pins stale state. This PR
+supplies the declaration and offline plan gate; it is not a sealed apply bundle.
+Preparing that bundle requires the current-owner provenance/refresh checks above.
+No IAM mutation or permission-set provisioning is performed by either new file.
 
-## Local verification and authoritative references
+## Rollback and post-change verification (future approval only)
 
-The regression tests check exact action allowlists, AWS read annotations, resource
-support for wildcard statements, account/region guards, state prefixes and absence
-of mutations. The reference fixture is a selected snapshot of AWS's public service
-reference JSON; source URL/version accompany each service. It is not an IAM policy
-simulator and cannot model SCPs, boundaries, denies or Cloud Control handler calls.
-See [AWS service reference](https://docs.aws.amazon.com/service-authorization/latest/reference/service-reference.html)
-and the per-service URLs in authorization-reference.json. No IAM or AWS resource
-changes are needed to run repository verification.
+Rollback: retain old combined declaration and existing owner. Prepare a fresh
+same-owner reverse plan that removes only the seven additions. Require human
+approval of its saved-plan hash and both-account automatic provisioning. Never
+restore old Terraform state or delete existing permissions/assignments. Partial
+provisioning failure is a stop requiring authorized operator reconciliation.
+
+After a separately approved future apply, verify actual role inline policy and
+absence of attachments/boundaries using operator evidence; compare permission set,
+assignments, publisher and second-account role. Refresh normal SSO session, then
+run strall-dev-plan with explicit us-east-1:
+
+```bash
+aws sts get-caller-identity --profile strall-dev-plan --region us-east-1
+aws cloudformation describe-type --profile strall-dev-plan --region us-east-1 --type RESOURCE --type-name AWS::IoTSiteWise::AssetModel
+aws cloudcontrol list-resources --profile strall-dev-plan --region us-east-1 --type-name AWS::IoTSiteWise::AssetModel
+aws cloudcontrol get-resource --profile strall-dev-plan --region us-east-1 --type-name AWS::IoT::TopicRule --identifier iot_digital_twin_operational_m1
+aws iotsitewise list-asset-models --profile strall-dev-plan --region us-east-1
+aws iot describe-endpoint --profile strall-dev-plan --region us-east-1 --endpoint-type iot:Data-ATS
+aws iot get-topic-rule --profile strall-dev-plan --region us-east-1 --rule-name iot_digital_twin_operational_m1
+aws iam get-role --profile strall-dev-plan --region us-east-1 --role-name iot-digital-twin-operational-m1-routing
+aws ssm get-parameter --profile strall-dev-plan --region us-east-1 --name /iac/iot-digital-twin/operational-demo/config --query 'Parameter.{Name:Name,Type:Type,Version:Version}'
+```
+
+No role-arn/PassRole, decryption, writes or MQTT. Keep raw properties/config private.
+Check every granted exact producer/config/runtime/legacy read; paginate inventories.
+New read permissions should be absent in the second account and wrong-region
+simulations. Negative IAM simulations must cover deployment, IAM writes/PassRole,
+SSM writes, certificate provisioning, MQTT Connect/Publish and SiteWise ingestion
+on exact resource ARNs, with real context and actual generated-role ARN. Never
+invoke forbidden operations to test denial. Validate unchanged ATOM baseline.
+
+## Acceptance and evidence
+
+M1-IAM-01: exact additive declaration and account guards. M1-IAM-02: no removed
+baseline rights or new mutations. M1-IAM-03: real plan permits one update/six no-ops.
+M1-IAM-04: wrong-account/region new grants absent; ATOM/publisher unchanged.
+Offline tests cover declaration invariants and synthetic allowed/rejected plans;
+real plan and post-change cases remain unexecuted pending authorized evidence.
+AWS service reference snapshot/URLs are in authorization-reference.json.

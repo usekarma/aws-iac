@@ -2,7 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "RegionalMetadata",
+      "Sid": "M1DiscoveryRegionalMetadata",
       "Effect": "Allow",
       "Action": [
         "cloudformation:DescribeType",
@@ -11,10 +11,7 @@
         "iotsitewise:ListAssetModels",
         "iotsitewise:DescribeStorageConfiguration",
         "iotsitewise:DescribeDefaultEncryptionConfiguration",
-        "iot:DescribeEndpoint",
-        "iot:ListThings",
-        "logs:DescribeLogGroups",
-        "servicequotas:ListServiceQuotas"
+        "iot:DescribeEndpoint"
       ],
       "Resource": "*",
       "Condition": {
@@ -25,7 +22,7 @@
       }
     },
     {
-      "Sid": "LegacyM1Stack",
+      "Sid": "M1DiscoveryLegacyM1Stack",
       "Effect": "Allow",
       "Action": [
         "cloudformation:DescribeStacks",
@@ -41,7 +38,7 @@
       }
     },
     {
-      "Sid": "M1Thing",
+      "Sid": "M1DiscoveryM1Thing",
       "Effect": "Allow",
       "Action": [
         "iot:DescribeThing",
@@ -56,7 +53,7 @@
       }
     },
     {
-      "Sid": "M1Policy",
+      "Sid": "M1DiscoveryM1Policy",
       "Effect": "Allow",
       "Action": [
         "iot:GetPolicy",
@@ -71,7 +68,7 @@
       }
     },
     {
-      "Sid": "M1Rule",
+      "Sid": "M1DiscoveryM1Rule",
       "Effect": "Allow",
       "Action": [
         "iot:GetTopicRule"
@@ -85,7 +82,7 @@
       }
     },
     {
-      "Sid": "RoutingRole",
+      "Sid": "M1DiscoveryRoutingRole",
       "Effect": "Allow",
       "Action": [
         "iam:GetRole",
@@ -101,7 +98,7 @@
       }
     },
     {
-      "Sid": "M1Configuration",
+      "Sid": "M1DiscoveryM1Configuration",
       "Effect": "Allow",
       "Action": [
         "ssm:GetParameter"
@@ -116,44 +113,6 @@
         "StringEquals": {
           "aws:PrincipalAccount": "623155450153",
           "aws:RequestedRegion": "us-east-1"
-        }
-      }
-    },
-    {
-      "Sid": "StateVersionOwnership",
-      "Effect": "Allow",
-      "Action": [
-        "s3:ListBucketVersions"
-      ],
-      "Resource": "arn:aws:s3:::623155450153-tf-state",
-      "Condition": {
-        "StringEquals": {
-          "aws:PrincipalAccount": "623155450153",
-          "aws:RequestedRegion": "us-east-1",
-          "s3:ResourceAccount": "623155450153",
-          "s3:prefix": [
-            "iot-digital-twin/operational-demo/terraform.tfstate",
-            "iot-digital-twin/atom-lite-001/terraform.tfstate"
-          ]
-        }
-      }
-    },
-    {
-      "Sid": "ExactStateReads",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:GetObjectVersion"
-      ],
-      "Resource": [
-        "arn:aws:s3:::623155450153-tf-state/iot-digital-twin/operational-demo/terraform.tfstate",
-        "arn:aws:s3:::623155450153-tf-state/iot-digital-twin/atom-lite-001/terraform.tfstate"
-      ],
-      "Condition": {
-        "StringEquals": {
-          "aws:PrincipalAccount": "623155450153",
-          "aws:RequestedRegion": "us-east-1",
-          "s3:ResourceAccount": "623155450153"
         }
       }
     }

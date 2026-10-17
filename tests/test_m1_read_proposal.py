@@ -37,7 +37,7 @@ class ReadProposalTests(unittest.TestCase):
         actions = {a for s in POLICY["Statement"] for a in s["Action"]}
         self.assertFalse(actions & {"iam:PassRole", "sts:AssumeRole", "iot:Publish"})
         self.assertNotIn("*", actions)
-        self.assertEqual(len(POLICY["Statement"]), 9)
+        self.assertEqual(len(POLICY["Statement"]), 7)
 
     def test_widened_principal_is_rejected(self):
         policy = copy.deepcopy(POLICY)
@@ -57,13 +57,16 @@ class ReadProposalTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             validate(policy)
 
-    def test_only_exact_state_prefixes(self):
-        statement = next(s for s in POLICY["Statement"] if s["Sid"] == "StateVersionOwnership")
-        self.assertEqual(
-            statement["Condition"]["StringEquals"]["s3:prefix"],
-            [
-                "iot-digital-twin/operational-demo/terraform.tfstate",
-                "iot-digital-twin/atom-lite-001/terraform.tfstate",
-            ],
+    def test_unnecessary_discovery_is_removed(self):
+        actions = {a for s in POLICY["Statement"] for a in s["Action"]}
+        self.assertFalse(
+            actions
+            & {
+                "s3:GetObject",
+                "s3:GetObjectVersion",
+                "s3:ListBucketVersions",
+                "logs:DescribeLogGroups",
+                "servicequotas:ListServiceQuotas",
+                "iot:ListThings",
+            }
         )
-        self.assertEqual(statement["Resource"], "arn:aws:s3:::623155450153-tf-state")
