@@ -18,14 +18,6 @@ data "aws_ssm_parameter" "config" {
   name = "${var.iac_prefix}/${var.component_name}/${var.nickname}/config"
 }
 locals {
-  config        = nonsensitive(jsondecode(data.aws_ssm_parameter.config.value))
-  artifact      = local.config.artifact
-  table_name    = "iot-digital-twin-simulator-state"
-  request_topic = "devices/atom-lite-001/demo/reset/request"
-  ack_topic     = "devices/atom-lite-001/demo/reset/ack"
-  functions = {
-    runner = { name = "iot-digital-twin-simulator-runner", handler = "app.runner_handler", timeout = 210 }
-    reset  = { name = "iot-digital-twin-simulator-reset", handler = "app.reset_handler", timeout = 10 }
-  }
-  tags = { Project = "iot-digital-twin", Experiment = "atom-lite-simulator", Environment = "sandbox" }
+  config = nonsensitive(jsondecode(data.aws_ssm_parameter.config.value))
+  mode   = try(local.config.mode, "durable-simulator")
 }
