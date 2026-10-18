@@ -35,9 +35,10 @@ class ServiceRoleTests(unittest.TestCase):
         )
         self.assertFalse(any(action.endswith(":*") for action in actions))
 
-    def test_not_wired_to_active_component(self):
+    def test_stable_same_owner_stage_wiring(self):
         text = "\n".join(p.read_text() for p in (ROOT / "components/iot-digital-twin").glob("*.tf"))
-        self.assertNotIn("iot-operational-service-role", text)
+        self.assertIn("iot-operational-service-role", text)
+        self.assertIn("local.managed_cloud_control ? 1 : 0", text)
 
     def test_downstream_actions_are_declared_by_pinned_handlers(self):
         reference = json.loads((MODULE.parent / "handler-permissions.reference.json").read_text())

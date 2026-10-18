@@ -51,6 +51,21 @@ def validate_config(value: dict, component: str, require_resolved: bool = False)
         if list(Draft202012Validator(schema).iter_errors(value)):
             raise ValueError("Invalid simulator configuration")
         if value.get("mode") == "operational-telemetry":
+            if value.get("deployment_stage") == "service-role-bootstrap":
+                if require_resolved and (
+                    value.get("expected_account") != "623155450153"
+                    or value.get("region") != "us-east-1"
+                    or "planning_dependencies" in value
+                    or value.get("expected_principal") is None
+                ):
+                    raise ValueError("Unresolved bootstrap target/identity")
+                return
+            if (
+                require_resolved
+                and value.get("deployment_stage") == "operational"
+                and not value.get("awscc_request_tags_verified")
+            ):
+                raise ValueError("AWSCC request-tag behavior unverified")
             unresolved = "planning_dependencies" in value or any(
                 value[k] is None
                 for k in (

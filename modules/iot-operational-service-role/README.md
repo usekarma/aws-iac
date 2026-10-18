@@ -1,13 +1,10 @@
 # M1 Cloud Control service-role proposal — not wired/deployed
 
-Owner: aws-iac; intended eventual owner is the canonical iot-digital-twin component,
-operational-demo state. This module is a reviewed declaration building block only:
-no root component reference, backend, aws-config publication or new state owner.
-Do not deploy it standalone or import into a competing state. Before wiring, review
-how an IAM-only first stage in the SAME canonical component retains the role when
-switching to operational mode; existing operational readiness requires the live ARN
-before AWSCC planning. That integration/config phase is still required; no -target
-or caller-credential fallback workaround is provided.
+Owner: aws-iac canonical iot-digital-twin component, operational-demo state.
+Explicit deployment_stage selects IAM-only bootstrap then operational deployment.
+The role module remains at module.cloud_control[0] in BOTH stages; no competing
+backend/state owner. See docs/m1-two-stage-bootstrap.md. No role is deployed yet.
+Configurations without deployment_stage retain their existing external-role behavior.
 
 Existing reuse: operator reports empty IAM search for cloudformation.amazonaws.com
 trust in 623155450153. Reader STS is verified; ListRoles denied. Record this as
@@ -94,7 +91,7 @@ Undo proposed source while un-deployed by removing module; after deployment use
 same-owner fresh reviewed plan, never manual state removal. Shared infrastructure,
 ATOM, existing Identity Center and producer keys are out of scope.
 
-Remaining blockers: canonical IAM-only stage integration, exact name/state ownership,
+Remaining blockers: exact name/state ownership,
 request-tag compatibility, verified role/caller permissions, alias/history/native rule
 and log inventory, readable resolved operational SSM (publication separate approval),
 and adequate read-only provider refresh access. No operational saved plan generated.

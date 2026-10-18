@@ -19,12 +19,21 @@ data "aws_ssm_parameter" "config" {
   name = "${var.iac_prefix}/${var.component_name}/${var.nickname}/config"
 }
 locals {
-  config = nonsensitive(jsondecode(data.aws_ssm_parameter.config.value))
-  mode   = try(local.config.mode, "durable-simulator")
+  config                = nonsensitive(jsondecode(data.aws_ssm_parameter.config.value))
+  mode                  = try(local.config.mode, "durable-simulator")
+  deployment_stage      = try(local.config.deployment_stage, "external-role")
+  bootstrap             = local.mode == "operational-telemetry" && local.deployment_stage == "service-role-bootstrap"
+  managed_cloud_control = local.mode == "operational-telemetry" && contains(["service-role-bootstrap", "operational"], local.deployment_stage)
 }
 
 provider "awscc" {
   region = var.region
   # Cloud Control service role, NOT an assume_role for Terraform's caller.
-  role_arn = try(local.config.cloudformation_role_arn, null)
+  role_arn = local.bootstrap ? null : try(local.config.cloudformation_role_arn, null)
+}
+
+# Stage 2 reads the already-created role; bootstrap does not query an absent role.
+data "aws_iam_role" "verified_cloud_control" {
+  count = local.managed_cloud_control && !local.bootstrap ? 1 : 0
+  name  = "iot-digital-twin-operational-m1-cloud-control"
 }
