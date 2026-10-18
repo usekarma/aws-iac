@@ -34,3 +34,22 @@ run "wrong_account" {
   }
   expect_failures = [aws_iam_role.cloud_control]
 }
+run "deleted_asset_polling_without_tag_context" {
+  command = plan
+  assert {
+    condition     = length(output.handler_policy.Statement) == 8 && output.handler_policy.Statement[7].Sid == "AssetDeletionPolling" && toset(output.handler_policy.Statement[7].Action) == toset(["iotsitewise:DescribeAsset"])
+    error_message = "Only the evidenced DescribeAsset polling action may bypass resource-tag conditions."
+  }
+  assert {
+    condition     = output.handler_policy.Statement[7].Resource == "arn:aws:iotsitewise:us-east-1:623155450153:asset/*" && toset(keys(output.handler_policy.Statement[7].Condition.StringEquals)) == toset(["aws:PrincipalAccount", "aws:RequestedRegion"]) && output.handler_policy.Statement[7].Condition.StringEquals["aws:PrincipalAccount"] == "623155450153" && output.handler_policy.Statement[7].Condition.StringEquals["aws:RequestedRegion"] == "us-east-1"
+    error_message = "Deleted resource polling needs stable ARN/account/region scope without tag context."
+  }
+  assert {
+    condition     = alltrue([for i in [2, 3, 4] : alltrue([for tag in ["Project", "Experiment", "Environment"] : contains(keys(output.handler_policy.Statement[i].Condition.StringEquals), "aws:ResourceTag/${tag}")])]) && output.handler_policy.Statement[6].Condition.StringEquals["iam:PassedToService"] == "iot.amazonaws.com"
+    error_message = "Existing lifecycle/tag ownership and PassRole fences must stay intact."
+  }
+  assert {
+    condition     = !contains(output.handler_policy.Statement[7].Action, "iotsitewise:DeleteAsset") && !contains(output.handler_policy.Statement[7].Action, "iotsitewise:DescribeAssetModel") && !contains(output.handler_policy.Statement[7].Action, "iotsitewise:ListAssets")
+    error_message = "No extra model, listing, write or delete permissions justified by asset polling evidence."
+  }
+}

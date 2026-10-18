@@ -101,3 +101,47 @@ https://docs.aws.amazon.com/cloudcontrolapi/latest/userguide/resource-operations
 https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudcontrol.html
 https://docs.aws.amazon.com/service-authorization/latest/reference/list_iotsitewise.html
 Pinned schemas: https://github.com/hashicorp/terraform-provider-awscc/tree/v1.106.0/internal/service/cloudformation/schemas
+
+## Deleted-asset polling correction
+
+The M1 compatibility experiment independently established native DeleteAsset accepted
+under this role at 2026-10-18T18:56:08Z (event868c6244-d2d9-4c18-895d-6f59d631d85b),
+then Cloud Control delete FAILED on DescribeAsset at18:56:13Z (request token
+7bb8e57d-ce4a-4126-8074-7316bb40a944, native requestID
+d4f6a3e5-aa4f-43af-be20-083e07928bb4). Native subsequent DescribeAsset was NotFound.
+Raw records remain private; no invented successful Cloud Control deletion receipt.
+The exact denied request is absent from captured CloudTrail but retained in terminal
+Cloud Control status. Tag context loss after deletion is strongly supported; AWS's
+internal IAM evaluation context is not directly observable here.
+
+The existing OwnedAssetLifecycle already grants DescribeAsset, requiring ownership
+tags that a deleted resource cannot supply. Add ONLY DescribeAsset in a separate
+read-only AssetDeletionPolling statement, with asset ARN namespace restricted to
+623155450153/us-east-1 and matching PrincipalAccount/RequestedRegion. No Resource *.
+Asset ARNs contain generated UUIDs, not project/name prefixes. Exact-ID scoping
+would require IDs before creation or a later policy update before each delete;
+referencing operational resource outputs in their own Cloud Control role policy
+introduces a bootstrap/dependency cycle and cannot support the initial lifecycle.
+ResourceTag, name and hierarchy conditions cannot reliably authorize the final
+missing-object status read. The fixed asset namespace is the narrowest reliable
+single-pass scope supported by current AWSCC-generated IDs and native DescribeAsset.
+
+Security tradeoff: this service role can now describe ANY asset in that account/region,
+including untagged and unrelated assets, if an identifier is supplied. Metadata
+includes asset properties; it is not telemetry-value read permission. This is explicit
+read exposure requiring human policy review, not an ownership guarantee. No list,
+model Describe, property-value read, DisassociateAssets or additional write/delete/tag
+rights are granted. All previous seven statements, trust and PassRole stay unchanged.
+Do not broaden other polling actions without actual handler evidence. Model deletion
+was native-admin in the experiment; model AWSCC lifecycle remains unproven. This
+fix has mock policy verification only; it does not claim live cleanup success.
+
+Return to Stage2 planning after merge: use published operational SSMv2 and the canonical
+state. Expected plan now has NINE operational additions AND ONE existing handler-policy
+update, with TWO existing resources unchanged. The former nine-add/three-no-op scope
+is superseded explicitly, not silently. Review that policy update separately or in the
+same exact saved plan; no apply is authorized. Applying no policy correction yet means
+the old observed cleanup risk persists. No plan regeneration, deployment or repeated
+experiment is performed by this PR. Rollback is a new reviewed same-owner plan removing
+only this read statement; doing so restores the known polling risk. No paid services
+or additional recurring infrastructure introduced by this policy correction.

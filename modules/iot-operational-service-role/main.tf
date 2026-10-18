@@ -77,6 +77,13 @@ resource "aws_iam_role_policy" "handlers" {
         Sid       = "PassOnlyRoutingRole", Effect = "Allow", Action = ["iam:PassRole"]
         Resource  = "arn:aws:iam::${local.account}:role/iot-digital-twin-operational-m1-routing"
         Condition = { StringEquals = { "iam:PassedToService" = "iot.amazonaws.com", "aws:PrincipalAccount" = local.account } }
+      },
+      {
+        # Delete stabilization reads must still reach NotFound after resource tags disappear.
+        # This deliberately permits metadata reads on other assets in this account/region.
+        Sid       = "AssetDeletionPolling", Effect = "Allow", Action = ["iotsitewise:DescribeAsset"]
+        Resource  = local.asset_arn
+        Condition = { StringEquals = local.regional }
       }
     ]
   })
