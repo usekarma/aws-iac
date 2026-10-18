@@ -1,0 +1,172 @@
+{
+  "provider": "hashicorp/awscc 1.106.0",
+  "source_root": "https://github.com/hashicorp/terraform-provider-awscc/tree/v1.106.0/internal/service/cloudformation/schemas",
+  "handlers": {
+    "AWS_IoTSiteWise_AssetModel": {
+      "create": {
+        "permissions": [
+          "iotsitewise:CreateAssetModel",
+          "iotsitewise:ListTagsForResource",
+          "iotsitewise:TagResource",
+          "iotsitewise:DescribeAssetModel",
+          "iotsitewise:UpdateAssetModel",
+          "iotsitewise:ListAssetModelProperties",
+          "iotsitewise:ListAssetModelCompositeModels",
+          "iotsitewise:UpdateAssetModelCompositeModel",
+          "iotsitewise:DescribeAssetModelCompositeModel",
+          "iotsitewise:CreateAssetModelCompositeModel",
+          "iotsitewise:PutAssetModelInterfaceRelationship",
+          "iotsitewise:DescribeAssetModelInterfaceRelationship"
+        ]
+      },
+      "read": {
+        "permissions": [
+          "iotsitewise:DescribeAssetModel",
+          "iotsitewise:ListAssetModelProperties",
+          "iotsitewise:DescribeAssetModelCompositeModel",
+          "iotsitewise:ListAssetModelCompositeModels",
+          "iotsitewise:ListTagsForResource",
+          "iotsitewise:DescribeAssetModelInterfaceRelationship"
+        ]
+      },
+      "update": {
+        "permissions": [
+          "iotsitewise:DescribeAssetModel",
+          "iotsitewise:ListTagsForResource",
+          "iotsitewise:TagResource",
+          "iotsitewise:UntagResource",
+          "iotsitewise:ListAssetModelProperties",
+          "iotsitewise:ListAssetModelCompositeModels",
+          "iotsitewise:CreateAssetModelCompositeModel",
+          "iotsitewise:UpdateAssetModelCompositeModel",
+          "iotsitewise:DeleteAssetModelCompositeModel",
+          "iotsitewise:DescribeAssetModelCompositeModel",
+          "iotsitewise:UpdateAssetModel",
+          "iotsitewise:PutAssetModelInterfaceRelationship",
+          "iotsitewise:DeleteAssetModelInterfaceRelationship",
+          "iotsitewise:DescribeAssetModelInterfaceRelationship"
+        ]
+      },
+      "delete": {
+        "permissions": [
+          "iotsitewise:DescribeAssetModel",
+          "iotsitewise:DeleteAssetModel",
+          "iotsitewise:ListAssetModelProperties",
+          "iotsitewise:ListAssetModelCompositeModels"
+        ]
+      },
+      "list": {
+        "permissions": [
+          "iotsitewise:DescribeAssetModel",
+          "iotsitewise:ListAssetModels",
+          "iotsitewise:ListTagsForResource",
+          "iotsitewise:ListAssetModelProperties",
+          "iotsitewise:ListAssetModelCompositeModels"
+        ]
+      }
+    },
+    "AWS_IoTSiteWise_Asset": {
+      "create": {
+        "permissions": [
+          "iotsitewise:AssociateAssets",
+          "iotsitewise:CreateAsset",
+          "iotsitewise:DescribeAsset",
+          "iotsitewise:DescribeAssetModel",
+          "iotsitewise:ListAssociatedAssets",
+          "iotsitewise:ListTagsForResource",
+          "iotsitewise:TagResource",
+          "iotsitewise:ListAssetModelProperties",
+          "iotsitewise:ListAssetProperties",
+          "iotsitewise:ListAssetModelCompositeModels",
+          "iotsitewise:UpdateAssetProperty"
+        ]
+      },
+      "read": {
+        "permissions": [
+          "iotsitewise:DescribeAsset",
+          "iotsitewise:DescribeAssetModel",
+          "iotsitewise:ListAssociatedAssets",
+          "iotsitewise:ListAssetModelProperties",
+          "iotsitewise:ListAssetModelCompositeModels",
+          "iotsitewise:ListAssetProperties",
+          "iotsitewise:ListTagsForResource"
+        ]
+      },
+      "update": {
+        "permissions": [
+          "iotsitewise:AssociateAssets",
+          "iotsitewise:DescribeAsset",
+          "iotsitewise:DescribeAssetModel",
+          "iotsitewise:DisassociateAssets",
+          "iotsitewise:ListAssociatedAssets",
+          "iotsitewise:ListTagsForResource",
+          "iotsitewise:TagResource",
+          "iotsitewise:UpdateAsset",
+          "iotsitewise:UpdateAssetProperty",
+          "iotsitewise:ListAssetModelProperties",
+          "iotsitewise:ListAssetProperties",
+          "iotsitewise:ListAssetModelCompositeModels",
+          "iotsitewise:UntagResource"
+        ]
+      },
+      "delete": {
+        "permissions": [
+          "iotsitewise:DeleteAsset",
+          "iotsitewise:DescribeAsset",
+          "iotsitewise:DescribeAssetModel",
+          "iotsitewise:DisassociateAssets",
+          "iotsitewise:ListAssociatedAssets",
+          "iotsitewise:ListAssetProperties",
+          "iotsitewise:ListTagsForResource",
+          "iotsitewise:ListAssetModelCompositeModels",
+          "iotsitewise:ListAssetModelProperties",
+          "iotsitewise:ListAssetProperties"
+        ]
+      },
+      "list": {
+        "permissions": [
+          "iotsitewise:ListAssetModels",
+          "iotsitewise:ListAssets"
+        ]
+      }
+    },
+    "AWS_IoT_TopicRule": {
+      "create": {
+        "permissions": [
+          "iam:PassRole",
+          "iot:CreateTopicRule",
+          "iot:GetTopicRule",
+          "iot:TagResource",
+          "iot:ListTagsForResource"
+        ]
+      },
+      "read": {
+        "permissions": [
+          "iot:GetTopicRule",
+          "iot:ListTagsForResource"
+        ]
+      },
+      "update": {
+        "permissions": [
+          "iam:PassRole",
+          "iot:GetTopicRule",
+          "iot:ListTagsForResource",
+          "iot:ReplaceTopicRule",
+          "iot:TagResource",
+          "iot:UntagResource"
+        ]
+      },
+      "delete": {
+        "permissions": [
+          "iot:GetTopicRule",
+          "iot:DeleteTopicRule"
+        ]
+      },
+      "list": {
+        "permissions": [
+          "iot:ListTopicRules"
+        ]
+      }
+    }
+  }
+}

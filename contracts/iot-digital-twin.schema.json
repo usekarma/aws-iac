@@ -236,8 +236,61 @@
               "cloudformation_execution_role"
             ]
           }
+        },
+        "deployment_stage": {
+          "enum": [
+            "service-role-bootstrap",
+            "operational"
+          ]
+        },
+        "awscc_request_tags_verified": {
+          "type": "boolean"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "deployment_stage"
+            ],
+            "properties": {
+              "deployment_stage": {
+                "const": "service-role-bootstrap"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "awscc_request_tags_verified"
+            ],
+            "properties": {
+              "cloudformation_role_arn": {
+                "type": "null"
+              },
+              "awscc_request_tags_verified": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "deployment_stage"
+            ],
+            "properties": {
+              "deployment_stage": {
+                "const": "operational"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "awscc_request_tags_verified"
+            ]
+          }
+        }
+      ]
     }
   ]
 }
