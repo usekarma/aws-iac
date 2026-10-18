@@ -88,3 +88,14 @@ jobs:
           cp components/iot-digital-twin/.terraform.lock.hcl modules/iot-operational/.terraform.lock.hcl
           terraform -chdir=modules/iot-operational init -backend=false -input=false -lockfile=readonly
           terraform -chdir=modules/iot-operational test -no-color
+
+      - name: Test proposed M1 service role with mocked AWS
+        env:
+          AGENT_MODE: '1'
+          AWS_EC2_METADATA_DISABLED: 'true'
+          TF_IN_AUTOMATION: 'true'
+        run: |
+          cp components/iot-digital-twin/.terraform.lock.hcl modules/iot-operational-service-role/.terraform.lock.hcl
+          terraform -chdir=modules/iot-operational-service-role init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=modules/iot-operational-service-role validate -no-color
+          terraform -chdir=modules/iot-operational-service-role test -no-color
